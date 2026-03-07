@@ -1,0 +1,46 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root { color-scheme: light; }
+
+  html, body {
+    background-color: #ffffff;
+    color: #111827;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+
+  * { @apply box-border; }
+
+  ::-webkit-scrollbar       { @apply w-1.5 h-1.5; }
+  ::-webkit-scrollbar-track { background: #f3f4f6; }
+  ::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 999px; }
+  ::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+}
+
+@layer utilities {
+  /* Subtle dot-grid for hero section */
+  .grid-bg {
+    background-image: radial-gradient(circle, #e5e7eb 1px, transparent 1px);
+    background-size: 28px 28px;
+  }
+
+  /* Subtle card shadow */
+  .card-shadow {
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.05);
+  }
+  .card-shadow-md {
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  }
+}
+
+/* Steam animation kept for logo compatibility */
+@keyframes steam {
+  0%   { opacity: 0; transform: translateY(0)  scaleX(1);   }
+  50%  { opacity: 1; transform: translateY(-4px) scaleX(1.1); }
+  100% { opacity: 0; transform: translateY(-8px) scaleX(0.9); }
+}
+.animate-steam {
+  animation: steam 2s ease-in-out infinite;
+}
