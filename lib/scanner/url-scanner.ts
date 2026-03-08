@@ -1,13 +1,21 @@
 import http from 'http';
 import https from 'https';
-import { calculateScore, type FindingConfidence, type FindingSeverity } from '@/lib/scoring';
+import {
+  calculateScore,
+  type FindingCategory,
+  type FindingConfidence,
+  type FindingExploitability,
+  type FindingSeverity,
+} from '@/lib/scoring';
 
 export type Severity = FindingSeverity;
 
 export interface UrlVulnerability {
   type: string;
+  category: FindingCategory;
   severity: Severity;
   confidence: FindingConfidence;
+  exploitability: FindingExploitability;
   file: string;
   line: null;
   code: string | null;
@@ -71,6 +79,7 @@ const REQUIRED_HEADERS: Array<{
 const SENSITIVE_PATHS: Array<{
   path: string;
   type: string;
+  category: FindingCategory;
   severity: Severity;
   description: string;
   suggestion: string;
@@ -78,6 +87,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/.env',
     type: 'Exposed .env File',
+    category: 'exposure',
     severity: 'critical',
     description: 'Environment file is publicly accessible. This likely exposes API keys, database credentials, and JWT secrets.',
     suggestion: 'Block access immediately in your web server. For Nginx: location ~ /\\.env { deny all; }.',
@@ -85,6 +95,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/.env.local',
     type: 'Exposed .env.local File',
+    category: 'exposure',
     severity: 'critical',
     description: 'Local environment file is publicly accessible, potentially exposing secrets.',
     suggestion: 'Block all .env* files: location ~ /\\.env { deny all; }',
@@ -92,6 +103,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/.env.production',
     type: 'Exposed .env.production File',
+    category: 'exposure',
     severity: 'critical',
     description: 'Production environment file is publicly accessible and production secrets may be compromised.',
     suggestion: 'Block access to all .env* files in your web server immediately.',
@@ -99,6 +111,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/.git/HEAD',
     type: 'Exposed Git Repository',
+    category: 'exposure',
     severity: 'high',
     description: 'The .git directory is publicly accessible. Attackers can reconstruct your source code and git history.',
     suggestion: 'Block access to /.git and ensure it is never deployed into the public web root.',
@@ -106,6 +119,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/wp-config.php',
     type: 'Exposed WordPress Config',
+    category: 'exposure',
     severity: 'critical',
     description: 'WordPress config with database host, username, and password is publicly accessible.',
     suggestion: 'Move wp-config.php above the web root or explicitly deny access in web server config.',
@@ -113,6 +127,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/phpinfo.php',
     type: 'PHP Info Page Exposed',
+    category: 'exposure',
     severity: 'high',
     description: 'phpinfo() reveals server config, versions, modules, and environment details.',
     suggestion: 'Delete phpinfo.php from your server immediately.',
@@ -120,6 +135,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/swagger.json',
     type: 'API Docs Exposed',
+    category: 'exposure',
     severity: 'medium',
     description: 'Swagger/OpenAPI spec is publicly accessible and reveals your API surface area.',
     suggestion: 'Restrict API docs to authenticated users or disable them in production.',
@@ -127,6 +143,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/api-docs',
     type: 'API Docs Endpoint Exposed',
+    category: 'exposure',
     severity: 'medium',
     description: 'API documentation endpoint is publicly accessible in production.',
     suggestion: 'Add authentication or disable the endpoint in production.',
@@ -134,6 +151,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/openapi.json',
     type: 'OpenAPI Spec Exposed',
+    category: 'exposure',
     severity: 'medium',
     description: 'OpenAPI specification is publicly accessible.',
     suggestion: 'Restrict access to API specs in production.',
@@ -141,6 +159,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/graphql',
     type: 'GraphQL Endpoint Exposed',
+    category: 'exposure',
     severity: 'medium',
     description: 'GraphQL endpoint is accessible without authentication and may expose introspection details.',
     suggestion: 'Disable GraphQL introspection in production or add authentication.',
@@ -148,6 +167,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/package.json',
     type: 'package.json Exposed',
+    category: 'exposure',
     severity: 'low',
     description: 'package.json reveals dependencies and versions to unauthenticated users.',
     suggestion: 'Block access to package.json in your web server config.',
@@ -155,6 +175,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/server.js',
     type: 'Server Source Code Exposed',
+    category: 'exposure',
     severity: 'medium',
     description: 'Server-side JavaScript source code is publicly accessible.',
     suggestion: 'Ensure source files are not in your static/public serving directory.',
@@ -162,6 +183,7 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/database.yml',
     type: 'Database Config Exposed',
+    category: 'exposure',
     severity: 'high',
     description: 'Database configuration file is publicly accessible and may contain credentials.',
     suggestion: 'Move config files outside the web root and block access via server config.',
@@ -169,9 +191,106 @@ const SENSITIVE_PATHS: Array<{
   {
     path: '/.DS_Store',
     type: '.DS_Store File Exposed',
+    category: 'exposure',
     severity: 'info',
     description: '.DS_Store can reveal directory structure and naming hints.',
     suggestion: 'Block .DS_Store files and add them to .gitignore.',
+  },
+  {
+    path: '/admin',
+    type: 'Admin Endpoint Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'An admin endpoint is directly accessible and may reveal privileged surfaces.',
+    suggestion: 'Restrict admin routes behind authentication and explicit authorization controls.',
+  },
+  {
+    path: '/admin/login',
+    type: 'Admin Login Endpoint Exposed',
+    category: 'exposure',
+    severity: 'medium',
+    description: 'An admin login endpoint is externally reachable and may expand the exposed authentication surface.',
+    suggestion: 'Ensure the admin login surface is necessary, monitored, and protected with rate limiting and MFA.',
+  },
+  {
+    path: '/login',
+    type: 'Login Endpoint Exposed',
+    category: 'exposure',
+    severity: 'medium',
+    description: 'A login endpoint is publicly reachable and should be intentionally protected and monitored.',
+    suggestion: 'Confirm the endpoint is expected, rate limited, and protected with strong authentication controls.',
+  },
+  {
+    path: '/dashboard',
+    type: 'Dashboard Endpoint Exposed',
+    category: 'exposure',
+    severity: 'medium',
+    description: 'A dashboard endpoint is directly reachable and may expose authenticated functionality.',
+    suggestion: 'Require authentication and verify dashboard routes do not leak privileged information.',
+  },
+  {
+    path: '/debug',
+    type: 'Debug Endpoint Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'A debug endpoint is externally reachable and may expose internal application state.',
+    suggestion: 'Remove or disable debug routes in production environments.',
+  },
+  {
+    path: '/.git',
+    type: 'Git Directory Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'The .git directory appears reachable from the public web surface.',
+    suggestion: 'Block access to /.git entirely and ensure repository metadata is never deployed into the web root.',
+  },
+  {
+    path: '/config',
+    type: 'Config Endpoint Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'A configuration endpoint is publicly accessible and may disclose application settings.',
+    suggestion: 'Remove or restrict configuration endpoints and ensure sensitive configuration never appears in public routes.',
+  },
+  {
+    path: '/config.json',
+    type: 'Config File Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'A config.json file is publicly accessible and may reveal environment details or credentials.',
+    suggestion: 'Move configuration outside the public web root and block direct file access.',
+  },
+  {
+    path: '/server-status',
+    type: 'Server Status Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'A server status endpoint is publicly reachable and may reveal operational details about the host.',
+    suggestion: 'Restrict server-status to internal networks or disable it in production.',
+  },
+  {
+    path: '/backup',
+    type: 'Backup Endpoint Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'A backup-related path is publicly reachable and may expose archived application or database content.',
+    suggestion: 'Move backups off the public web surface and block direct access.',
+  },
+  {
+    path: '/db',
+    type: 'Database Endpoint Exposed',
+    category: 'exposure',
+    severity: 'high',
+    description: 'A database-related path is publicly reachable and may expose internal operational assets.',
+    suggestion: 'Ensure database tooling and exports are never accessible from public routes.',
+  },
+  {
+    path: '/swagger',
+    type: 'Swagger UI Exposed',
+    category: 'exposure',
+    severity: 'medium',
+    description: 'Swagger UI is publicly accessible and reveals API structure and interactive documentation.',
+    suggestion: 'Restrict Swagger UI to authenticated users or disable it in production.',
   },
 ];
 
@@ -197,30 +316,73 @@ const SCANNER_UA = 'Almond-teAI-Security-Scanner/1.0';
 interface ScanResponse {
   status: number;
   headers: Record<string, string | string[]>;
+  body?: string | null;
 }
 
-function nodeRequest(url: string, timeoutMs: number, method = 'GET'): Promise<ScanResponse | null> {
+interface RequestOptions {
+  method?: 'GET' | 'HEAD' | 'POST';
+  body?: string;
+  extraHeaders?: Record<string, string>;
+  includeBody?: boolean;
+  maxBytes?: number;
+}
+
+function nodeRequest(url: string, timeoutMs: number, requestOptions: RequestOptions = {}): Promise<ScanResponse | null> {
   return new Promise(resolve => {
     try {
       const parsed = new URL(url);
       const mod = parsed.protocol === 'https:' ? https : http;
-      const options = {
+      const method = requestOptions.method ?? 'GET';
+      const requestConfig = {
         hostname: parsed.hostname,
         port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
         path: parsed.pathname + parsed.search,
         method,
-        headers: { 'User-Agent': SCANNER_UA, Accept: '*/*' },
+        headers: {
+          'User-Agent': SCANNER_UA,
+          Accept: '*/*',
+          ...(requestOptions.extraHeaders ?? {}),
+        },
         rejectUnauthorized: false,
         timeout: timeoutMs,
       };
-      const req = mod.request(options, res => {
-        res.resume();
-        const hdrs: Record<string, string | string[]> = {};
-        for (const [key, value] of Object.entries(res.headers)) {
-          if (value !== undefined) hdrs[key] = value;
+      const req = mod.request(requestConfig, res => {
+        if (!requestOptions.includeBody || method === 'HEAD') {
+          res.resume();
+          const hdrs: Record<string, string | string[]> = {};
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (value !== undefined) hdrs[key] = value;
+          }
+          resolve({ status: res.statusCode ?? 0, headers: hdrs, body: null });
+          return;
         }
-        resolve({ status: res.statusCode ?? 0, headers: hdrs });
+
+        const chunks: Buffer[] = [];
+        let totalBytes = 0;
+        const maxBytes = requestOptions.maxBytes ?? 4096;
+        res.on('data', chunk => {
+          const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+          totalBytes += buffer.length;
+          if (totalBytes <= maxBytes) {
+            chunks.push(buffer);
+          }
+        });
+        res.on('end', () => {
+          const hdrs: Record<string, string | string[]> = {};
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (value !== undefined) hdrs[key] = value;
+          }
+          resolve({
+            status: res.statusCode ?? 0,
+            headers: hdrs,
+            body: Buffer.concat(chunks).toString('utf8'),
+          });
+        });
+        res.on('error', () => resolve(null));
       });
+      if (requestOptions.body) {
+        req.write(requestOptions.body);
+      }
       req.on('timeout', () => {
         req.destroy();
         resolve(null);
@@ -242,7 +404,7 @@ function getHeader(headers: Record<string, string | string[]>, name: string): st
 async function safeFetch(url: string, timeoutMs = 6000): Promise<ScanResponse | null> {
   let current = url;
   for (let i = 0; i < 3; i++) {
-    const response = await nodeRequest(current, timeoutMs);
+    const response = await nodeRequest(current, timeoutMs, { method: 'GET' });
     if (!response) return null;
     if (response.status >= 301 && response.status <= 308) {
       const location = getHeader(response.headers, 'location');
@@ -256,15 +418,140 @@ async function safeFetch(url: string, timeoutMs = 6000): Promise<ScanResponse | 
 }
 
 async function probeStatus(url: string): Promise<number | null> {
-  const response = await nodeRequest(url, 4000, 'HEAD');
+  const response = await nodeRequest(url, 4000, { method: 'HEAD' });
   return response ? response.status : null;
 }
 
-function createWebsiteFinding(input: Omit<UrlVulnerability, 'confidence'> & { confidence?: FindingConfidence }): UrlVulnerability {
+function createWebsiteFinding(input: Omit<UrlVulnerability, 'confidence' | 'exploitability'> & {
+  confidence?: FindingConfidence;
+  exploitability?: FindingExploitability;
+}): UrlVulnerability {
   return {
     confidence: input.confidence ?? 'detected',
+    exploitability: input.exploitability ?? 'none',
     ...input,
   };
+}
+
+async function fetchVerificationBody(
+  cache: Map<string, ScanResponse | null>,
+  url: string,
+  requestOptions: RequestOptions,
+): Promise<ScanResponse | null> {
+  const key = `${requestOptions.method ?? 'GET'}:${url}:${requestOptions.body ?? ''}`;
+  if (cache.has(key)) {
+    return cache.get(key) ?? null;
+  }
+
+  const response = await nodeRequest(url, 5000, {
+    includeBody: true,
+    maxBytes: 4096,
+    ...requestOptions,
+  });
+  cache.set(key, response);
+  return response;
+}
+
+function verifyReadableEnv(body: string | null | undefined): boolean {
+  if (!body) return false;
+  return /(?:^|\n)\s*[A-Z0-9_]+\s*=\s*.+/m.test(body);
+}
+
+function verifyGitHead(body: string | null | undefined): boolean {
+  if (!body) return false;
+  return /^ref:\s+refs\/heads\//m.test(body.trim());
+}
+
+function verifySwagger(body: string | null | undefined): boolean {
+  if (!body) return false;
+  return /"openapi"\s*:|"swagger"\s*:|swagger-ui|openapi/i.test(body);
+}
+
+function verifyApiDocs(body: string | null | undefined): boolean {
+  if (!body) return false;
+  return /swagger-ui|swagger|openapi|api docs|redoc/i.test(body);
+}
+
+function verifyGraphqlResponse(response: ScanResponse | null): boolean {
+  if (!response || (response.status !== 200 && response.status !== 400)) return false;
+  const contentType = getHeader(response.headers, 'content-type') ?? '';
+  const body = response.body ?? '';
+  return /json/i.test(contentType) && /"data"|"errors"|__typename/i.test(body);
+}
+
+async function verifyExploitability(
+  base: string,
+  finding: UrlVulnerability,
+  cache: Map<string, ScanResponse | null>,
+): Promise<UrlVulnerability> {
+  if (finding.type === 'Missing Content-Security-Policy') {
+    return { ...finding, exploitability: 'possible' };
+  }
+
+  if (finding.type === 'CORS Wildcard + Credentials') {
+    return { ...finding, exploitability: 'confirmed' };
+  }
+
+  if (finding.type === 'CORS Wildcard Origin') {
+    return { ...finding, exploitability: 'possible' };
+  }
+
+  if (finding.type === 'Exposed .env File' && finding.file === '/.env') {
+    const response = await fetchVerificationBody(cache, `${base}${finding.file}`, { method: 'GET' });
+    return {
+      ...finding,
+      exploitability: verifyReadableEnv(response?.body) ? 'confirmed' : 'possible',
+    };
+  }
+
+  if (finding.type === 'Exposed Git Repository' && finding.file === '/.git/HEAD') {
+    const response = await fetchVerificationBody(cache, `${base}${finding.file}`, { method: 'GET' });
+    return {
+      ...finding,
+      exploitability: verifyGitHead(response?.body) ? 'confirmed' : 'possible',
+    };
+  }
+
+  if (finding.type === 'API Docs Exposed' && finding.file === '/swagger.json') {
+    const response = await fetchVerificationBody(cache, `${base}${finding.file}`, {
+      method: 'GET',
+      extraHeaders: { Accept: 'application/json,text/plain,*/*' },
+    });
+    return {
+      ...finding,
+      exploitability: verifySwagger(response?.body) ? 'confirmed' : 'possible',
+    };
+  }
+
+  if (finding.type === 'API Docs Endpoint Exposed' && finding.file === '/api-docs') {
+    const response = await fetchVerificationBody(cache, `${base}${finding.file}`, { method: 'GET' });
+    return {
+      ...finding,
+      exploitability: verifyApiDocs(response?.body) ? 'confirmed' : 'possible',
+    };
+  }
+
+  if (finding.type === 'GraphQL Endpoint Exposed' && finding.file === '/graphql') {
+    const response = await fetchVerificationBody(cache, `${base}${finding.file}`, {
+      method: 'POST',
+      body: JSON.stringify({ query: '{ __typename }' }),
+      extraHeaders: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+    });
+    return {
+      ...finding,
+      exploitability: verifyGraphqlResponse(response) ? 'confirmed' : 'possible',
+    };
+  }
+
+  return finding;
+}
+
+async function runExploitVerification(base: string, findings: UrlVulnerability[]): Promise<UrlVulnerability[]> {
+  const cache = new Map<string, ScanResponse | null>();
+  return Promise.all(findings.map(finding => verifyExploitability(base, finding, cache)));
 }
 
 export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
@@ -291,9 +578,10 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
 
   totalChecks++;
   if (!target.startsWith('https://')) {
-    vulnerabilities.push(createWebsiteFinding({
-      type: 'No HTTPS / Unencrypted Connection',
-      severity: 'critical',
+      vulnerabilities.push(createWebsiteFinding({
+        type: 'No HTTPS / Unencrypted Connection',
+        category: 'configuration',
+        severity: 'critical',
       confidence: 'verified',
       file: 'Protocol',
       line: null,
@@ -311,6 +599,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
     if (!value) {
       vulnerabilities.push(createWebsiteFinding({
         type: header.type,
+        category: 'configuration',
         severity: header.severity,
         confidence: 'detected',
         file: 'HTTP Header',
@@ -329,6 +618,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   if (poweredBy) {
     vulnerabilities.push(createWebsiteFinding({
       type: 'Server Technology Disclosed',
+      category: 'configuration',
       severity: 'info',
       confidence: 'detected',
       file: 'HTTP Header',
@@ -346,6 +636,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   if (serverHeader && /[\d.]+/.test(serverHeader)) {
     vulnerabilities.push(createWebsiteFinding({
       type: 'Server Version Disclosed',
+      category: 'configuration',
       severity: 'info',
       confidence: 'detected',
       file: 'HTTP Header',
@@ -370,6 +661,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
       const name = cookie.split('=')[0].trim();
       vulnerabilities.push(createWebsiteFinding({
         type: 'Cookie Missing HttpOnly Flag',
+        category: 'configuration',
         severity: 'low',
         confidence: 'detected',
         file: 'Cookie',
@@ -387,6 +679,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
       const name = cookie.split('=')[0].trim();
       vulnerabilities.push(createWebsiteFinding({
         type: 'Cookie Missing Secure Flag',
+        category: 'configuration',
         severity: 'low',
         confidence: 'detected',
         file: 'Cookie',
@@ -406,6 +699,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   if (corsOrigin === '*' && corsCredentials === 'true') {
     vulnerabilities.push(createWebsiteFinding({
       type: 'CORS Wildcard + Credentials',
+      category: 'configuration',
       severity: 'critical',
       confidence: 'verified',
       file: 'HTTP Header',
@@ -417,6 +711,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   } else if (corsOrigin === '*') {
     vulnerabilities.push(createWebsiteFinding({
       type: 'CORS Wildcard Origin',
+      category: 'configuration',
       severity: 'low',
       confidence: 'detected',
       file: 'HTTP Header',
@@ -440,12 +735,14 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   let probedPaths = 0;
   for (const probeResult of probeResults) {
     if (probeResult.status !== 'fulfilled') continue;
-    const { path, type, severity, description, suggestion, status } = probeResult.value;
+    const { path, type, category, severity, description, suggestion, status } = probeResult.value;
     probedPaths++;
     totalChecks++;
-    if (status === 200) {
+    const shouldFlagGraphql = path === '/graphql' && (status === 200 || status === 400 || status === 405);
+    if (status === 200 || shouldFlagGraphql) {
       vulnerabilities.push(createWebsiteFinding({
         type,
+        category,
         severity,
         confidence: severity === 'critical' || severity === 'high' ? 'verified' : 'likely',
         file: path,
@@ -459,19 +756,21 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
     }
   }
 
-  const score = calculateScore(vulnerabilities, 'website').score;
-  const criticalCount = vulnerabilities.filter(vulnerability => vulnerability.severity === 'critical').length;
-  const highCount = vulnerabilities.filter(vulnerability => vulnerability.severity === 'high').length;
+  const verifiedVulnerabilities = await runExploitVerification(base, vulnerabilities);
+
+  const score = calculateScore(verifiedVulnerabilities, 'website').score;
+  const criticalCount = verifiedVulnerabilities.filter(vulnerability => vulnerability.severity === 'critical').length;
+  const highCount = verifiedVulnerabilities.filter(vulnerability => vulnerability.severity === 'high').length;
   const { hostname } = new URL(target);
 
-  let summary = `Website scan of ${hostname} - ${vulnerabilities.length} issue${vulnerabilities.length !== 1 ? 's' : ''} found`;
+  let summary = `Website scan of ${hostname} - ${verifiedVulnerabilities.length} issue${verifiedVulnerabilities.length !== 1 ? 's' : ''} found`;
   if (criticalCount > 0) summary += ` (${criticalCount} critical)`;
   if (highCount > 0) summary += `, ${highCount} high severity`;
   summary += `. Security score: ${score}/100.`;
 
   return {
     score,
-    vulnerabilities,
+    vulnerabilities: verifiedVulnerabilities,
     summary,
     totalChecks,
     passedChecks,

@@ -3,6 +3,7 @@
 import { Activity, Calendar, ExternalLink, FileSearch, Globe, Shield, TrendingUp } from 'lucide-react';
 import SeverityBadge from '@/components/SeverityBadge';
 import { formatDate, scoreRingColor } from '@/lib/utils';
+import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
 
 interface VerificationVulnerability {
   id: string;
@@ -38,11 +39,14 @@ interface VerificationProject {
 }
 
 function getScoreLabel(score: number) {
-  if (score >= 90) return 'Excellent';
-  if (score >= 70) return 'Good';
-  if (score >= 50) return 'Fair';
-  if (score >= 30) return 'Poor';
-  return 'Critical Risk';
+  const key = scoreStatusKey(score);
+  switch (key) {
+    case 'excellent': return 'Excellent';
+    case 'good': return 'Good';
+    case 'fair': return 'Fair';
+    case 'poor': return 'Poor';
+    default: return 'Critical Risk';
+  }
 }
 
 function projectTypeLabel(projectType: string) {
@@ -65,6 +69,7 @@ function severityRank(severity: string) {
 export default function ProjectVerificationView({ project }: { project: VerificationProject }) {
   const latestScan = project.latestScan;
   const latestScore = latestScan.score ?? 0;
+  const latestGrade = gradeLabel(latestScore);
   const latestColor = scoreRingColor(latestScore);
   const latestScoreLabel = getScoreLabel(latestScore);
 
@@ -126,12 +131,21 @@ export default function ProjectVerificationView({ project }: { project: Verifica
           </div>
 
           <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-gray-50 p-6">
-            <p className="text-sm text-gray-500">Latest security score</p>
-            <div className="mt-3 flex items-end gap-3">
-              <span className="text-5xl font-bold" style={{ color: latestColor }}>{latestScore}</span>
-              <span className="pb-2 text-sm text-gray-400">/ 100</span>
+            <p className="text-sm text-gray-500">Latest security assessment</p>
+            <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
+              <div className="rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-gray-400">Grade</p>
+                <p className="mt-1 text-2xl font-bold text-gray-900">{latestGrade}</p>
+              </div>
+              <div className="col-span-2 rounded-xl border border-gray-200 bg-white p-4">
+                <p className="text-gray-400">Score</p>
+                <div className="mt-1 flex items-end gap-2">
+                  <span className="text-4xl font-bold" style={{ color: latestColor }}>{latestScore}</span>
+                  <span className="pb-1 text-sm text-gray-400">/ 100</span>
+                </div>
+              </div>
             </div>
-            <p className="mt-2 text-sm font-semibold" style={{ color: latestColor }}>{latestScoreLabel}</p>
+            <p className="mt-3 text-sm font-semibold" style={{ color: latestColor }}>Status: {latestScoreLabel}</p>
             <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
               <div className="rounded-xl border border-gray-200 bg-white p-4">
                 <p className="text-gray-400">Latest scan type</p>
@@ -149,10 +163,11 @@ export default function ProjectVerificationView({ project }: { project: Verifica
       <div className="mt-8 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <div className="rounded-xl border border-gray-200 bg-white p-6 card-shadow">
           <div className="flex items-center justify-between">
-            <p className="text-sm text-gray-500">Latest score</p>
+            <p className="text-sm text-gray-500">Latest grade</p>
             <Shield className="h-5 w-5 text-gray-400" />
           </div>
-          <p className="mt-2 text-3xl font-bold" style={{ color: latestColor }}>{latestScore}</p>
+          <p className="mt-2 text-3xl font-bold" style={{ color: latestColor }}>{latestGrade}</p>
+          <p className="mt-1 text-sm text-gray-500">Score {latestScore} / 100</p>
         </div>
         <div className="rounded-xl border border-gray-200 bg-white p-6 card-shadow">
           <div className="flex items-center justify-between">
@@ -257,12 +272,16 @@ export default function ProjectVerificationView({ project }: { project: Verifica
           {project.scans.map((scan, index) => (
             <div
               key={scan.id}
-              className="grid gap-3 bg-white px-4 py-4 text-sm sm:grid-cols-[1.1fr_0.6fr_0.7fr_0.7fr]"
+              className="grid gap-3 bg-white px-4 py-4 text-sm sm:grid-cols-[1.1fr_0.5fr_0.6fr_0.7fr_0.7fr]"
               style={{ borderBottom: index === project.scans.length - 1 ? 'none' : '1px solid #F3F4F6' }}
             >
               <div>
                 <p className="font-medium text-gray-900">{formatDate(scan.createdAt, 'en')}</p>
                 <p className="mt-1 text-xs text-gray-400">{scan.status === 'completed' ? 'Completed' : scan.status}</p>
+              </div>
+              <div>
+                <p className="text-gray-400">Grade</p>
+                <p className="mt-1 font-semibold text-gray-900">{scan.score != null ? gradeLabel(scan.score) : '—'}</p>
               </div>
               <div>
                 <p className="text-gray-400">Score</p>

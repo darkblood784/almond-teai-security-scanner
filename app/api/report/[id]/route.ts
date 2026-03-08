@@ -8,7 +8,15 @@ export async function GET(
 ) {
   const scan = await prisma.scan.findUnique({
     where:   { id: params.id },
-    include: { vulnerabilities: true },
+    include: {
+      vulnerabilities: true,
+      project: {
+        select: {
+          publicSlug: true,
+          visibility: true,
+        },
+      },
+    },
   });
 
   if (!scan) {

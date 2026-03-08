@@ -308,6 +308,7 @@ export const SKIP_EXTENSIONS = new Set([
   '.mp4', '.mp3', '.avi', '.mov',
   '.zip', '.tar', '.gz', '.rar',
   '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+  '.db', '.sqlite', '.sqlite3',
   '.lock', '.map',
 ]);
 

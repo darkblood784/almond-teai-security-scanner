@@ -2,6 +2,7 @@
 import { scoreRingColor } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { strings } from '@/lib/i18n';
+import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
 
 interface Props {
   score:        number;
@@ -12,11 +13,14 @@ interface Props {
 }
 
 function getScoreLabel(score: number, t: typeof strings['en']) {
-  if (score >= 90) return t.score_excellent;
-  if (score >= 70) return t.score_good;
-  if (score >= 50) return t.score_fair;
-  if (score >= 30) return t.score_poor;
-  return t.score_critical;
+  const key = scoreStatusKey(score);
+  switch (key) {
+    case 'excellent': return t.score_excellent;
+    case 'good': return t.score_good;
+    case 'fair': return t.score_fair;
+    case 'poor': return t.score_poor;
+    default: return t.score_critical;
+  }
 }
 
 export default function ScoreCard({ score, totalFiles, linesScanned, repoName, counts }: Props) {
@@ -24,6 +28,7 @@ export default function ScoreCard({ score, totalFiles, linesScanned, repoName, c
   const t = strings[lang];
 
   const label     = getScoreLabel(score, t);
+  const grade     = gradeLabel(score);
   const ringColor = scoreRingColor(score);
 
   const RADIUS     = 72;
@@ -68,6 +73,20 @@ export default function ScoreCard({ score, totalFiles, linesScanned, repoName, c
           {repoName && (
             <p className="mb-4 truncate text-sm font-mono text-gray-400">{repoName}</p>
           )}
+          <div className="mb-4 grid gap-3 sm:grid-cols-3">
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Grade</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">{grade}</p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Score</p>
+              <p className="mt-1 text-2xl font-bold text-gray-900">{score} <span className="text-sm font-medium text-gray-400">/ 100</span></p>
+            </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 px-4 py-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">Status</p>
+              <p className="mt-1 text-base font-semibold" style={{ color: ringColor }}>{label}</p>
+            </div>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {severities.map(({ label: sevLabel, count, color, bg, border }) => (
               <div

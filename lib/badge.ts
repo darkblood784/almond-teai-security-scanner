@@ -1,4 +1,4 @@
-import { gradeLabel } from '@/lib/scoring';
+import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
 
 function gradeColor(grade: string): string {
   switch (grade) {
@@ -7,7 +7,7 @@ function gradeColor(grade: string): string {
     case 'B':
       return '#2563eb';
     case 'C':
-      return '#b45309';
+      return '#d97706';
     case 'D':
       return '#ea580c';
     default:
@@ -24,32 +24,48 @@ function escapeXml(value: string): string {
     .replace(/'/g, '&apos;');
 }
 
+function scoreStatusLabel(score: number): string {
+  const key = scoreStatusKey(score);
+  switch (key) {
+    case 'excellent': return 'Excellent';
+    case 'good': return 'Good';
+    case 'fair': return 'Fair';
+    case 'poor': return 'Poor';
+    default: return 'Critical Risk';
+  }
+}
+
 export function renderTrustBadge(score: number, createdAt: Date | string): string {
   const grade = gradeLabel(score);
   const rightColor = gradeColor(grade);
+  const status = scoreStatusLabel(score);
   const date = new Date(createdAt).toISOString().slice(0, 10);
-  const leftLabel = 'Almond teAI verified';
-  const rightLabel = `Score ${score} · ${grade}`;
-  const dateLabel = `Last scan ${date}`;
+  const leftLabel = 'Almond teAI';
+  const rightLabel = `${score} · ${grade}`;
+  const metaLabel = `Status ${status} - Last scan ${date}`;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="360" height="54" role="img" aria-label="${escapeXml(`${leftLabel} ${rightLabel} ${dateLabel}`)}">
-  <rect width="360" height="54" rx="10" fill="#ffffff"/>
-  <rect x="0.5" y="0.5" width="359" height="53" rx="9.5" fill="#ffffff" stroke="#e5e7eb"/>
-  <rect x="0" y="0" width="198" height="54" rx="10" fill="#111827"/>
-  <rect x="198" y="0" width="162" height="54" rx="10" fill="${rightColor}"/>
-  <rect x="198" y="0" width="10" height="54" fill="${rightColor}"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="332" height="74" role="img" aria-label="${escapeXml(`${leftLabel} ${rightLabel} ${metaLabel}`)}">
+  <defs>
+    <clipPath id="badge-main-clip">
+      <rect x="16" y="14" width="280" height="40" rx="8"/>
+    </clipPath>
+  </defs>
+  <rect width="332" height="74" rx="14" fill="#ffffff"/>
+  <rect x="0.5" y="0.5" width="331" height="73" rx="13.5" fill="#ffffff" stroke="#e5e7eb"/>
+  <g clip-path="url(#badge-main-clip)">
+    <rect x="16" y="14" width="280" height="40" fill="#1f2937"/>
+    <rect x="198" y="14" width="98" height="40" fill="${rightColor}"/>
+  </g>
 
-  <text x="18" y="23" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="700">
+  <text x="38" y="39" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="14" font-weight="700">
     ${escapeXml(leftLabel)}
   </text>
-
-  <text x="216" y="22" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700">
+  <text x="247" y="39" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="700" text-anchor="middle">
     ${escapeXml(rightLabel)}
   </text>
-
-  <text x="216" y="39" fill="rgba(255,255,255,0.92)" font-family="Arial, Helvetica, sans-serif" font-size="10">
-    ${escapeXml(dateLabel)}
+  <text x="16" y="67" fill="#6b7280" font-family="Arial, Helvetica, sans-serif" font-size="11">
+    ${escapeXml(metaLabel)}
   </text>
 </svg>`;
 }

@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { scoreRingColor, formatDate } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { strings } from '@/lib/i18n';
+import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
 
 interface ScanItem {
   id: string;
@@ -18,11 +19,14 @@ interface ScanItem {
 interface Props { scan: ScanItem; isLast: boolean; }
 
 function getScoreLabel(score: number, t: typeof strings['en']) {
-  if (score >= 90) return t.score_excellent;
-  if (score >= 70) return t.score_good;
-  if (score >= 50) return t.score_fair;
-  if (score >= 30) return t.score_poor;
-  return t.score_critical;
+  const key = scoreStatusKey(score);
+  switch (key) {
+    case 'excellent': return t.score_excellent;
+    case 'good': return t.score_good;
+    case 'fair': return t.score_fair;
+    case 'poor': return t.score_poor;
+    default: return t.score_critical;
+  }
 }
 
 export default function ScanListItem({ scan, isLast }: Props) {
@@ -32,6 +36,7 @@ export default function ScanListItem({ scan, isLast }: Props) {
   const score = scan.score;
   const color = score != null ? scoreRingColor(score) : '#D1D5DB';
   const label = score != null ? getScoreLabel(score, t) : '—';
+  const grade = score != null ? gradeLabel(score) : null;
   const vulnN = scan._count.vulnerabilities;
 
   return (
@@ -60,6 +65,14 @@ export default function ScanListItem({ scan, isLast }: Props) {
       <div className="flex items-center gap-3">
         {scan.status === 'completed' ? (
           <>
+            {grade && (
+              <span
+                className="rounded-full border px-2.5 py-0.5 text-xs font-bold"
+                style={{ color, borderColor: color, backgroundColor: `${color}12` }}
+              >
+                {grade}
+              </span>
+            )}
             <span className="text-sm font-medium" style={{ color }}>{label}</span>
             {vulnN > 0 && (
               <span className="rounded-full border border-red-200 bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600">

@@ -9,26 +9,9 @@ import {
   type Severity,
 } from './patterns';
 import { calculateScore, type FindingConfidence } from '@/lib/scoring';
-
-export interface VulnerabilityResult {
-  type: string;
-  severity: Severity;
-  confidence: FindingConfidence;
-  file: string;
-  line?: number;
-  code?: string;
-  description: string;
-  suggestion: string;
-}
-
-export interface ScanResult {
-  score: number;
-  totalFiles: number;
-  scannedFiles: number;
-  linesScanned: number;
-  vulnerabilities: VulnerabilityResult[];
-  summary: string;
-}
+import { scanSecrets } from './secret-scanner';
+import { scanDependencies } from './dependency-scanner';
+import type { ScanResult, VulnerabilityResult } from './types';
 
 interface SeverityCounts {
   critical: number;
@@ -36,6 +19,93 @@ interface SeverityCounts {
   medium: number;
   low: number;
   info: number;
+}
+
+const HIGH_VALUE_TYPES = new Set([
+  'Hardcoded Secret',
+  'SQL Injection',
+  'Unsafe Code Execution',
+  'Insecure Authentication',
+]);
+
+function isScannerInternal(relPath: string): boolean {
+  const normalized = relPath.replace(/\\/g, '/').toLowerCase();
+  return normalized.startsWith('lib/scanner/');
+}
+
+function isLowValueContext(relPath: string): boolean {
+  const normalized = relPath.replace(/\\/g, '/').toLowerCase();
+  const base = path.basename(normalized);
+
+  if (base.startsWith('readme')) return true;
+  if (normalized.endsWith('.md')) return true;
+  if (normalized.startsWith('docs/')) return true;
+  if (normalized.startsWith('examples/')) return true;
+  if (normalized.includes('/examples/')) return true;
+  if (normalized.startsWith('fixtures/')) return true;
+  if (normalized.includes('/fixtures/')) return true;
+  if (normalized.includes('/__fixtures__/')) return true;
+  if (normalized.includes('/test-fixtures/')) return true;
+  if (normalized.startsWith('samples/')) return true;
+  if (normalized.includes('/samples/')) return true;
+
+  return false;
+}
+
+function shouldSuppressPattern(relPath: string, patternType: string, severity: Severity): boolean {
+  if (HIGH_VALUE_TYPES.has(patternType)) return false;
+  if (!isLowValueContext(relPath)) return false;
+  return severity === 'low' || severity === 'medium' || severity === 'info';
+}
+
+function normalizedCode(code?: string): string {
+  return (code ?? '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function dedupeVulnerabilities(vulnerabilities: VulnerabilityResult[]): VulnerabilityResult[] {
+  const exactSeen = new Set<string>();
+  const fileTypeCounts = new Map<string, number>();
+  const kept: VulnerabilityResult[] = [];
+
+  for (const vulnerability of vulnerabilities) {
+    const exactKey = [
+      vulnerability.category,
+      vulnerability.type,
+      vulnerability.file,
+      vulnerability.line ?? 0,
+      normalizedCode(vulnerability.code),
+    ].join('|');
+
+    if (exactSeen.has(exactKey)) continue;
+    exactSeen.add(exactKey);
+
+    const preserveNearLine =
+      vulnerability.category === 'secret' ||
+      vulnerability.category === 'dependency' ||
+      HIGH_VALUE_TYPES.has(vulnerability.type);
+
+    if (!preserveNearLine) {
+      const nearDuplicate = kept.find(existing =>
+        existing.type === vulnerability.type &&
+        existing.file === vulnerability.file &&
+        Math.abs((existing.line ?? -9999) - (vulnerability.line ?? 9999)) <= 3,
+      );
+      if (nearDuplicate) continue;
+    }
+
+    const countKey = `${vulnerability.file}|${vulnerability.type}`;
+    const currentCount = fileTypeCounts.get(countKey) ?? 0;
+    const cap = preserveNearLine ? 5 : 3;
+    if (currentCount >= cap) continue;
+    fileTypeCounts.set(countKey, currentCount + 1);
+
+    kept.push(vulnerability);
+  }
+
+  return kept;
 }
 
 function inferConfidence(type: string, severity: Severity): FindingConfidence {
@@ -55,13 +125,21 @@ function inferConfidence(type: string, severity: Severity): FindingConfidence {
   return 'detected';
 }
 
+function inferCategory(type: string): VulnerabilityResult['category'] {
+  if (type === 'Misconfiguration') return 'configuration';
+  if (type === 'Open Admin Route') return 'exposure';
+  return 'code';
+}
+
 function scanFile(filePath: string, relPath: string, content: string): VulnerabilityResult[] {
   const results: VulnerabilityResult[] = [];
   const ext = path.extname(filePath).toLowerCase();
   const lines = content.split('\n');
 
   for (const pattern of SECURITY_PATTERNS) {
+    if (pattern.type === 'Hardcoded Secret') continue;
     if (pattern.fileTypes && !pattern.fileTypes.includes(ext)) continue;
+    if (shouldSuppressPattern(relPath, pattern.type, pattern.severity)) continue;
 
     pattern.pattern.lastIndex = 0;
 
@@ -77,8 +155,10 @@ function scanFile(filePath: string, relPath: string, content: string): Vulnerabi
 
       results.push({
         type: pattern.type,
+        category: inferCategory(pattern.type),
         severity: pattern.severity,
         confidence: inferConfidence(pattern.type, pattern.severity),
+        exploitability: 'none',
         file: relPath,
         line: lineNumber,
         code: lineContent.slice(0, 200),
@@ -139,7 +219,7 @@ function collectFiles(dir: string, collected: string[] = []): string[] {
 
 export async function scanDirectory(dir: string): Promise<ScanResult> {
   const allFiles = collectFiles(dir);
-  const vulnerabilities: VulnerabilityResult[] = [];
+  const codeVulnerabilities: VulnerabilityResult[] = [];
   let linesScanned = 0;
   let scannedFiles = 0;
 
@@ -155,8 +235,21 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
     linesScanned += content.split('\n').length;
     scannedFiles++;
 
-    vulnerabilities.push(...scanFile(filePath, relPath, content));
+    if (!isScannerInternal(relPath)) {
+      codeVulnerabilities.push(...scanFile(filePath, relPath, content));
+    }
   }
+
+  const [secretVulnerabilities, dependencyVulnerabilities] = await Promise.all([
+    scanSecrets(allFiles, dir),
+    scanDependencies(dir),
+  ]);
+
+  const vulnerabilities = dedupeVulnerabilities([
+    ...codeVulnerabilities,
+    ...secretVulnerabilities,
+    ...dependencyVulnerabilities,
+  ]);
 
   const counts: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
   for (const vulnerability of vulnerabilities) counts[vulnerability.severity]++;

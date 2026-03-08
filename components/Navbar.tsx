@@ -8,17 +8,14 @@ import { cn } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { strings } from '@/lib/i18n';
 
-function ShieldLogo({ className }: { className?: string }) {
+function TeaCupLogo({ className }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
-      <path
-        d="M12 2L3.5 5.5V12c0 5 3.5 9.5 8.5 11 5-1.5 8.5-6 8.5-11V5.5L12 2z"
-        stroke="currentColor" strokeWidth="1.75" strokeLinejoin="round"
-      />
-      <path
-        d="M8.5 12l2.5 2.5 4.5-5"
-        stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"
-      />
+    <svg viewBox="-1 2 22 22" fill="none" xmlns="http://www.w3.org/2000/svg" className={className}>
+      <path d="M7 8C5.5 7 8.5 6 7 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M10 8C8.5 7 11.5 6 10 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path d="M13 8C11.5 7 14.5 6 13 5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <rect x="4.5" y="11" width="11" height="9" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path d="M15.5 13.5Q20 13.5 20 15.5Q20 17.5 15.5 17.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }
@@ -39,7 +36,7 @@ export default function Navbar() {
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3">
         <Link href="/" className="group flex items-center gap-2.5">
           <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gray-900 text-white transition-colors group-hover:bg-gray-700">
-            <ShieldLogo className="h-5 w-5" />
+            <TeaCupLogo className="h-5 w-5" />
           </div>
           <span className="text-base font-bold tracking-tight text-gray-900">
             Almond te<span className="text-gray-400">AI</span>

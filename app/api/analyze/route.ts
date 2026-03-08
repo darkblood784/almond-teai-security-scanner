@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import extract from 'extract-zip';
 import { auth } from '@/auth';
 import prisma from '@/lib/db';
 import { scanDirectory } from '@/lib/scanner/index';
 import { scanUrl } from '@/lib/scanner/url-scanner';
 import { downloadGitHubZip } from '@/lib/github';
 import { aiAnalyze } from '@/lib/ai';
+import { compareScans } from '@/lib/regression';
+import { safeExtractZip } from '@/lib/safe-extract';
 import { parseGitHubUrl } from '@/lib/utils';
 import {
   buildGitHubCanonicalKey,
@@ -18,6 +19,28 @@ import {
 } from '@/lib/projects';
 
 export const maxDuration = 60;
+
+async function loadPreviousCompletedScan(projectId: string, currentScanId: string) {
+  return prisma.scan.findFirst({
+    where: {
+      projectId,
+      status: 'completed',
+      id: { not: currentScanId },
+    },
+    orderBy: { createdAt: 'desc' },
+    include: {
+      vulnerabilities: {
+        select: {
+          type: true,
+          category: true,
+          severity: true,
+          file: true,
+          line: true,
+        },
+      },
+    },
+  });
+}
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -74,6 +97,18 @@ export async function POST(req: NextRequest) {
       }
 
       const aiResult = await aiAnalyze(hostname, result.vulnerabilities as never[], result.score);
+      const previousScan = await loadPreviousCompletedScan(project.id, scan.id);
+      const regression = compareScans(previousScan, {
+        id: scan.id,
+        score: result.score,
+        vulnerabilities: result.vulnerabilities.map(v => ({
+          type: v.type,
+          category: v.category,
+          severity: v.severity,
+          file: v.file,
+          line: v.line ?? null,
+        })),
+      });
 
       await prisma.scan.update({
         where: { id: scan.id },
@@ -85,6 +120,14 @@ export async function POST(req: NextRequest) {
           scannedFiles: result.passedChecks,
           linesScanned: result.probedPaths,
           aiSummary:    aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+          previousScanId: regression.previousScanId,
+          previousScore: regression.previousScore,
+          scoreDelta: regression.scoreDelta,
+          regressionStatus: regression.regressionStatus,
+          regressionSummary: regression.regressionSummary,
+          newFindingsCount: regression.newFindingsCount,
+          resolvedFindingsCount: regression.resolvedFindingsCount,
+          unchangedFindingsCount: regression.unchangedFindingsCount,
         },
       });
       await prisma.project.update({
@@ -95,8 +138,9 @@ export async function POST(req: NextRequest) {
       if (result.vulnerabilities.length > 0) {
         await prisma.vulnerability.createMany({
           data: result.vulnerabilities.map(v => ({
-            scanId: scan.id, type: v.type, severity: v.severity,
+            scanId: scan.id, type: v.type, category: v.category, severity: v.severity,
             confidence: v.confidence,
+            exploitability: v.exploitability,
             file: v.file, line: v.line, code: v.code,
             description: v.description, suggestion: v.suggestion,
           })),
@@ -133,7 +177,7 @@ export async function POST(req: NextRequest) {
 
       let extractDir = path.join(tmpDir, 'repo');
       fs.mkdirSync(extractDir);
-      await extract(zipPath, { dir: extractDir });
+      await safeExtractZip(zipPath, extractDir);
       const entries = fs.readdirSync(extractDir);
       if (entries.length === 1) { const inner = path.join(extractDir, entries[0]); if (fs.statSync(inner).isDirectory()) extractDir = inner; }
 
@@ -149,11 +193,32 @@ export async function POST(req: NextRequest) {
       }
 
       const aiResult = await aiAnalyze(repoName, result.vulnerabilities, result.score);
+      const previousScan = await loadPreviousCompletedScan(project.id, scan.id);
+      const regression = compareScans(previousScan, {
+        id: scan.id,
+        score: result.score,
+        vulnerabilities: result.vulnerabilities.map(v => ({
+          type: v.type,
+          category: v.category,
+          severity: v.severity,
+          file: v.file,
+          line: v.line ?? null,
+        })),
+      });
       await prisma.scan.update({
         where: { id: scan.id },
         data: { status: 'completed', score: result.score, summary: result.summary,
           totalFiles: result.totalFiles, scannedFiles: result.scannedFiles, linesScanned: result.linesScanned,
-          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null },
+          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+          previousScanId: regression.previousScanId,
+          previousScore: regression.previousScore,
+          scoreDelta: regression.scoreDelta,
+          regressionStatus: regression.regressionStatus,
+          regressionSummary: regression.regressionSummary,
+          newFindingsCount: regression.newFindingsCount,
+          resolvedFindingsCount: regression.resolvedFindingsCount,
+          unchangedFindingsCount: regression.unchangedFindingsCount,
+        },
       });
       await prisma.project.update({
         where: { id: project.id },
@@ -163,8 +228,9 @@ export async function POST(req: NextRequest) {
       if (result.vulnerabilities.length > 0) {
         await prisma.vulnerability.createMany({
           data: result.vulnerabilities.map(v => ({
-            scanId: scan.id, type: v.type, severity: v.severity,
+            scanId: scan.id, type: v.type, category: v.category, severity: v.severity,
             confidence: v.confidence,
+            exploitability: v.exploitability,
             file: v.file, line: v.line ?? null, code: v.code ?? null,
             description: v.description, suggestion: v.suggestion,
           })),
@@ -193,7 +259,7 @@ export async function POST(req: NextRequest) {
 
       let extractDir = path.join(tmpDir, 'repo');
       fs.mkdirSync(extractDir);
-      await extract(zipPath, { dir: extractDir });
+      await safeExtractZip(zipPath, extractDir);
       const entries = fs.readdirSync(extractDir);
       if (entries.length === 1) { const inner = path.join(extractDir, entries[0]); if (fs.statSync(inner).isDirectory()) extractDir = inner; }
 
@@ -209,11 +275,32 @@ export async function POST(req: NextRequest) {
       }
 
       const aiResult = await aiAnalyze(repoName, result.vulnerabilities, result.score);
+      const previousScan = await loadPreviousCompletedScan(project.id, scan.id);
+      const regression = compareScans(previousScan, {
+        id: scan.id,
+        score: result.score,
+        vulnerabilities: result.vulnerabilities.map(v => ({
+          type: v.type,
+          category: v.category,
+          severity: v.severity,
+          file: v.file,
+          line: v.line ?? null,
+        })),
+      });
       await prisma.scan.update({
         where: { id: scan.id },
         data: { status: 'completed', score: result.score, summary: result.summary,
           totalFiles: result.totalFiles, scannedFiles: result.scannedFiles, linesScanned: result.linesScanned,
-          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null },
+          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+          previousScanId: regression.previousScanId,
+          previousScore: regression.previousScore,
+          scoreDelta: regression.scoreDelta,
+          regressionStatus: regression.regressionStatus,
+          regressionSummary: regression.regressionSummary,
+          newFindingsCount: regression.newFindingsCount,
+          resolvedFindingsCount: regression.resolvedFindingsCount,
+          unchangedFindingsCount: regression.unchangedFindingsCount,
+        },
       });
       await prisma.project.update({
         where: { id: project.id },
@@ -223,8 +310,9 @@ export async function POST(req: NextRequest) {
       if (result.vulnerabilities.length > 0) {
         await prisma.vulnerability.createMany({
           data: result.vulnerabilities.map(v => ({
-            scanId: scan.id, type: v.type, severity: v.severity,
+            scanId: scan.id, type: v.type, category: v.category, severity: v.severity,
             confidence: v.confidence,
+            exploitability: v.exploitability,
             file: v.file, line: v.line ?? null, code: v.code ?? null,
             description: v.description, suggestion: v.suggestion,
           })),

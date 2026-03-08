@@ -1,4 +1,4 @@
-import type { VulnerabilityResult } from './scanner/index';
+import type { VulnerabilityResult } from './scanner/types';
 
 const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 

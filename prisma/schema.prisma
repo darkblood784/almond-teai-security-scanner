@@ -53,6 +53,14 @@ model Scan {
   linesScanned    Int             @default(0)
   errorMessage    String?
   aiSummary       String?
+  previousScanId  String?
+  previousScore   Int?
+  scoreDelta      Int?
+  regressionStatus String?
+  regressionSummary String?
+  newFindingsCount Int            @default(0)
+  resolvedFindingsCount Int       @default(0)
+  unchangedFindingsCount Int      @default(0)
   vulnerabilities Vulnerability[]
   latestForProject Project?       @relation("LatestProjectScan")
 
@@ -65,8 +73,10 @@ model Vulnerability {
   scanId      String
   scan        Scan     @relation(fields: [scanId], references: [id], onDelete: Cascade)
   type        String
+  category    String   @default("code")
   severity    String
   confidence  String   @default("detected")
+  exploitability String @default("none")
   file        String
   line        Int?
   code        String?
@@ -76,6 +86,7 @@ model Vulnerability {
 
   @@index([scanId])
   @@index([severity])
+  @@index([category])
 }
 
 model User {
