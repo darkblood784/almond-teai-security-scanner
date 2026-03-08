@@ -1,111 +1,233 @@
-# 🛡️ AI Code Security Scanner
+# Almond teAI
 
-A SaaS web application that analyzes AI-generated code repositories and automatically detects security vulnerabilities.
+Almond teAI is a security verification and trust platform for repositories, uploaded codebases, and live websites.
 
-## Features
+It goes beyond one-time vulnerability detection by combining project-centric scan history, public verification pages, trust badges, exploit verification, regression intelligence, and professional PDF reporting.
 
-- 🔍 **20+ Security Patterns** — Hardcoded secrets, SQL injection, XSS, insecure auth, CORS misconfig, and more
-- ⚡ **GitHub Integration** — Paste any public repo URL and scan instantly
-- 📁 **ZIP Upload** — Upload your project as a .zip archive
-- 🏆 **Security Score** — 0–100 score with severity breakdown
-- 🤖 **AI Analysis** — Claude-powered executive summary (optional)
-- 📄 **PDF Reports** — Downloadable professional security reports
-- 📊 **Dashboard** — Track all your scans in one place
+## What Is Implemented
+
+### Core scan inputs
+- GitHub repository scanning
+- ZIP/codebase upload scanning
+- Live website security scanning
+
+### Security analysis
+- Static code-pattern scanning
+- Secret detection in repositories
+- Dependency vulnerability scanning through OSV
+- Website exposure and misconfiguration scanning
+- Safe exploit verification for selected website findings
+  - `/.env`
+  - `/.git/HEAD`
+  - `/swagger.json`
+  - `/api-docs`
+  - CORS misconfiguration
+  - safe GraphQL exposure verification
+
+### Trust and scoring
+- Project-centric data model
+- Weighted scoring v2
+- Grade derivation (`A`/`B`/`C`/`D`/`F`)
+- Confidence model (`detected`, `likely`, `verified`)
+- Exploitability model (`none`, `possible`, `confirmed`)
+- Category-aware findings
+  - `secret`
+  - `dependency`
+  - `code`
+  - `exposure`
+  - `configuration`
+
+### Trust platform features
+- Public verification pages per project
+- Embeddable SVG trust badges
+- Project settings for:
+  - public/private visibility
+  - badge eligibility
+  - monitoring enabled flag
+- Security Regression Intelligence v1
+  - previous vs current scan comparison
+  - score delta
+  - new / resolved / unchanged findings
+  - improved / stable / degraded summary
+
+### Reporting
+- Professional Almond teAI PDF security reports
+- Grade, score, status, exploitability, and category included in report findings
+- Badge embed UX on the scan detail page
+
+### SaaS foundation
+- Auth.js / NextAuth integration
+- GitHub OAuth sign-in
+- user-owned projects
+- project-level access foundation for SaaS transition
+
+## Product Direction
+
+Almond teAI is not just a scanner.
+
+It is being built as a trust platform for modern AI-generated apps, websites, and software projects.
+
+Current direction:
+- stronger trust realism in scoring
+- public transparency
+- verification pages and badges
+- exploit verification
+- project-level history
+- future continuous monitoring
+
+## Tech Stack
+
+- Next.js 14 (App Router)
+- React
+- Tailwind CSS
+- Prisma
+- SQLite by default
+- Auth.js / NextAuth
+- pdfmake
+- Anthropic Claude API (optional)
+
+## Project Structure
+
+```text
+app/
+  api/
+    analyze/                Scan execution
+    auth/[...nextauth]/     Auth.js
+    badge/[slug]/           Trust badge SVG
+    projects/[id]/settings/ Internal project settings
+    report/[id]/            PDF report
+    scans/                  Scan APIs
+  dashboard/                Dashboard
+  projects/[slug]/          Public verification page
+  scan/[id]/                Scan detail page
+
+components/
+  ScanReportView.tsx
+  ScoreCard.tsx
+  VulnerabilityTable.tsx
+  CategoryBadge.tsx
+  ExploitabilityBadge.tsx
+  ProjectVerificationView.tsx
+
+lib/
+  ai.ts
+  badge.ts
+  pdf.ts
+  projects.ts
+  regression.ts
+  safe-extract.ts
+  scoring.ts
+  scanner/
+    dependency-scanner.ts
+    secret-scanner.ts
+    url-scanner.ts
+    index.ts
+    patterns.ts
+    types.ts
+
+prisma/
+  schema.prisma
+```
 
 ## Quick Start
 
 ### Prerequisites
 - Node.js 18+
-- (Optional) Anthropic API key for AI-enhanced analysis
+- GitHub OAuth app if you want sign-in
+- optional Anthropic API key for AI summaries
 
-### 1. Run setup script
-```bash
-chmod +x setup.sh && ./setup.sh
-```
+### Install
 
-### 2. Or manual setup
 ```bash
 npm install
-cp .env.example .env      # edit .env as needed
+cp .env.example .env
 npx prisma generate
 npx prisma db push
 npm run dev
 ```
 
-### 3. Open the app
-Visit [http://localhost:3000](http://localhost:3000)
+Open:
+
+```text
+http://localhost:3000
+```
 
 ## Environment Variables
 
+Required or commonly used variables:
+
 | Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | SQLite: `file:./dev.db` / PostgreSQL: `postgresql://...` |
-| `ANTHROPIC_API_KEY` | No | Enables AI-powered security summary |
-| `GITHUB_TOKEN` | No | Increases GitHub API rate limit (useful for many scans) |
-| `NEXT_PUBLIC_APP_URL` | No | Public URL of your deployment |
+|---|---|---|
+| `DATABASE_URL` | Yes | Default local database path |
+| `NEXTAUTH_SECRET` | Yes for auth | Auth.js session secret |
+| `NEXTAUTH_URL` | Yes for auth | Base app URL |
+| `GITHUB_ID` | Yes for GitHub login | GitHub OAuth client id |
+| `GITHUB_SECRET` | Yes for GitHub login | GitHub OAuth client secret |
+| `NEXT_PUBLIC_APP_URL` | Recommended | Public app URL used in badge/embed links |
+| `ANTHROPIC_API_KEY` | No | Enables AI summary generation |
+| `GITHUB_TOKEN` | No | Helps with GitHub API rate limits |
+| `INTERNAL_ADMIN_TOKEN` | Internal MVP only | Used by the current internal project settings control |
 
-## Switch to PostgreSQL
+## Local Development Notes
 
-1. In `.env`, change `DATABASE_URL` to your PostgreSQL connection string
-2. In `prisma/schema.prisma`, change `provider = "sqlite"` to `provider = "postgresql"`
-3. Run `npx prisma migrate dev`
+- If Prisma schema changes, run:
 
-## Detected Vulnerability Types
-
-| Type | Severity |
-|------|----------|
-| AWS/Stripe/OpenAI API Keys | Critical |
-| Database Credentials | Critical |
-| SQL Injection (concat/template) | Critical |
-| Private Keys | Critical |
-| eval() / new Function() | Critical |
-| JWT Algorithm: none | Critical |
-| Hardcoded Admin Credentials | Critical |
-| Weak Password Hashing (MD5) | High |
-| dangerouslySetInnerHTML | High |
-| Unprotected Admin Routes | High |
-| Shell Command Injection | High |
-| TLS Verification Disabled | High |
-| CORS Wildcard (*) | Medium |
-| Sensitive Data in Logs | Medium |
-| Insecure Randomness | Medium |
-| Prototype Pollution | Medium |
-| Debug Routes Exposed | Medium |
-| Env Var Hardcoded Fallback | Low |
-
-## Tech Stack
-
-- **Frontend**: Next.js 14 (App Router) + Tailwind CSS
-- **Backend**: Next.js API Routes (Node.js)
-- **Database**: SQLite (dev) / PostgreSQL (prod) via Prisma
-- **AI**: Anthropic Claude API
-- **PDF**: pdfmake
-- **Scanner**: Custom static analysis engine (regex + AST-aware)
-
-## Project Structure
-
+```bash
+npx prisma generate
+npx prisma db push
 ```
-├── app/
-│   ├── page.tsx               # Landing page
-│   ├── new/page.tsx           # New scan form
-│   ├── dashboard/page.tsx     # Scan history
-│   ├── scan/[id]/page.tsx     # Scan report
-│   └── api/
-│       ├── analyze/route.ts   # POST: trigger scan
-│       ├── scans/route.ts     # GET: list scans
-│       ├── scans/[id]/route.ts# GET: single scan
-│       └── report/[id]/route.ts # GET: PDF download
-├── components/
-│   ├── ScoreCard.tsx          # Circular score gauge
-│   ├── VulnerabilityTable.tsx # Filterable vuln list
-│   ├── ScanForm.tsx           # GitHub URL + zip upload
-│   └── Navbar.tsx
-├── lib/
-│   ├── scanner/
-│   │   ├── patterns.ts        # Security detection patterns
-│   │   └── index.ts           # Scanner engine
-│   ├── github.ts              # GitHub zip download
-│   ├── ai.ts                  # Claude AI integration
-│   └── pdf.ts                 # PDF generation
-└── prisma/schema.prisma       # Database schema
-```
+
+- On Windows, stop `next dev` before running `prisma generate` if Prisma engine files are locked.
+- ZIP extraction now skips symlinks and `node_modules` to avoid Windows extraction failures during scanning.
+
+## Current Detection Areas
+
+Examples of what Almond teAI currently detects or verifies:
+
+- hardcoded secrets
+- insecure hashing
+- insecure authentication patterns
+- unsafe code execution
+- SQL injection patterns
+- dependency vulnerabilities
+- missing headers and security misconfigurations
+- exposed environment/config/git assets
+- open API/docs endpoints
+- CORS misconfiguration
+
+## Current Limitations
+
+This is still an evolving platform. Current limitations include:
+
+- static repo scanning still uses pattern-based detection
+- exploit verification is intentionally limited to safe, read-only checks
+- continuous monitoring automation is not implemented yet
+- notifications are not implemented yet
+- public verification currently emphasizes project trust state, not full monitoring workflows
+
+## Roadmap Themes
+
+Near-term product themes already supported or underway:
+
+- better trust realism in scoring
+- regression intelligence
+- exploit verification
+- public transparency
+- project trust history
+
+Planned future expansion:
+
+- automated continuous monitoring
+- monitoring alerts
+- richer regression visibility
+- stronger SaaS limits and plan enforcement
+- premium manual review and trust workflows
+
+## Documentation
+
+- [PROJECT_VISION.md](./PROJECT_VISION.md)
+- [SAAS_ARCHITECTURE.md](./SAAS_ARCHITECTURE.md)
+
+## Positioning
+
+Almond teAI is designed to help teams move from one-time scanning toward ongoing security verification and public trust signaling.

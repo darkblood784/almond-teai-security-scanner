@@ -1,766 +1,369 @@
-# Almond teAI – SaaS Architecture Plan
+# Almond teAI - SaaS Architecture Status
 
 ## 1. Purpose
 
-This document defines the next architecture phase for Almond teAI.
+This document describes the current SaaS architecture state of Almond teAI.
 
-The project has already evolved from a simple scan-based MVP into a project-centric trust platform with:
+It is not just a future plan. It reflects:
+- what is already implemented
+- what is partially implemented
+- what remains to be built next
 
-- scan ingestion
-- project grouping
+Almond teAI is evolving from a scanner MVP into a security trust platform with public verification, trust badges, project ownership, and future monitoring.
+
+---
+
+## 2. Current Product Position
+
+Almond teAI is a security verification and trust platform for:
+- repositories
+- uploaded codebases
+- live websites
+
+Current product capabilities already go beyond one-time scanning:
+- project-centric scan history
 - public verification pages
-- score calculation
 - embeddable trust badges
+- exploit verification for selected website findings
+- regression intelligence between scans
+- professional PDF reporting
 
-The next step is to evolve Almond teAI into a real multi-user SaaS product.
-
-This means the platform must now support:
-
-- user accounts
-- sign in / sign up
+The SaaS transition adds:
+- user identity
 - project ownership
-- private vs public project control
-- usage limits
-- free vs paid plans
-- paid continuous monitoring
-- backend enforcement of limits
-- protection against platform abuse
-
-This document is the source of truth for that SaaS transition.
+- access control foundations
+- future quota and paid feature enforcement
 
 ---
 
-# 2. Product Direction
+## 3. What Is Already Implemented
 
-Almond teAI is not just a scanner.
-
-It is a **security trust platform for AI-generated apps, websites, and software projects**.
-
-In the SaaS phase, users should be able to:
-
-- create an account
-- sign in
-- submit scans under their own account
-- view and manage their own projects
-- control whether projects are public or private
-- enable public badges for eligible projects
-- upgrade to paid plans
-- unlock continuous monitoring and other premium features
-
-The platform must prevent abuse by ensuring that free users cannot run unlimited scans.
-
----
-
-# 3. Core SaaS Principles
-
-When adding SaaS features, the system should follow these principles:
-
-1. **Ownership**
-   - Every project must belong to a user.
-   - Every scan must be traceable to a project owner.
-
-2. **Backend enforcement**
-   - Limits and permissions must be enforced on the server.
-   - UI-only restrictions are not sufficient.
-
-3. **Simple MVP first**
-   - Start with the smallest practical auth + quota system.
-   - Avoid enterprise complexity early.
-
-4. **Trust remains the product core**
-   - Auth and billing are support systems.
-   - The platform’s main value is still security verification and trust.
-
-5. **Gradual evolution**
-   - Build only what is needed for:
-     - secure user ownership
-     - scan limits
-     - plan gating
-     - monitoring eligibility
-
----
-
-# 4. SaaS Goals
-
-The SaaS architecture should enable the following:
-
-## Immediate goals
-- add sign in / sign up
-- associate projects with users
-- restrict access to private projects
-- allow users to see only their own projects and scans
-- enforce scan limits for free users
-- prepare the platform for paid plans
-
-## Short-term goals
-- support a free plan and a paid plan
-- enable continuous monitoring only for paid users
-- show usage and limits in the dashboard
-- allow users to manage trust features on owned projects
-
-## Long-term goals
-- support subscriptions and billing
-- support organizations / teams
-- support project collaborators
-- support enterprise features
-- support audit logs and team permissions
-
----
-
-# 5. Recommended MVP SaaS Scope
-
-The MVP SaaS phase should include only the following:
-
-## Authentication
-- sign in
-- sign up
-- session handling
-
-## Ownership
-- every Project belongs to one User
-
-## Authorization
-- users can only manage their own projects
-- only owners can make a project public
-- only owners can enable trust badges or monitoring
-
-## Usage limits
-- scan limits per user
-- monthly usage tracking
-- backend enforcement before starting a scan
-
-## Plans
-- at least:
-  - free
-  - pro
-
-## Feature gating
-- continuous monitoring only for paid users
-- free users have limited scans
-- future premium scan types can be gated later
-
-This is enough to make the system a real SaaS without overbuilding.
-
----
-
-# 6. Recommended Auth Strategy
-
-## Preferred approach: Auth.js / NextAuth with Prisma
-
-For the current stack (Next.js + Prisma), the best MVP auth solution is:
-
+### Authentication
+Implemented:
 - Auth.js / NextAuth
+- GitHub OAuth login
 - Prisma adapter
-- OAuth-based login first
+- database-backed sessions
 
-Recommended providers:
-- GitHub
-- Google
+Current files:
+- [auth.ts](./auth.ts)
+- [app/api/auth/[...nextauth]/route.ts](./app/api/auth/[...nextauth]/route.ts)
 
-Why this is recommended:
-- integrates well with Next.js
-- integrates well with Prisma
-- reduces risk compared to building auth manually
-- fast to implement
-- familiar SaaS pattern
-- enough for MVP
+### User ownership
+Implemented:
+- `User` model
+- `Project.ownerId`
+- one user owns many projects
+- scans are owned indirectly through projects
 
-## Why not build custom password auth first
+Current files:
+- [prisma/schema.prisma](./prisma/schema.prisma)
+- [lib/projects.ts](./lib/projects.ts)
+- [app/api/analyze/route.ts](./app/api/analyze/route.ts)
 
-Custom password auth introduces:
-- password hashing flows
-- reset flows
-- verification emails
-- security risk
-- more implementation complexity
+### Project-centric trust model
+Implemented:
+- `Project` as the trust identity
+- repeated scans grouped under the same project
+- `latestScanId`
+- `visibility`
+- `publicSlug`
+- `badgeEligible`
+- `monitoringEnabled`
 
-For MVP, OAuth login is enough.
+### Public trust features
+Implemented:
+- public verification pages
+- public trust badge endpoint
+- internal project settings UI for trust controls
 
-Email/password can be added later if necessary.
+Current files:
+- [app/projects/[slug]/page.tsx](./app/projects/[slug]/page.tsx)
+- [app/api/badge/[slug]/route.ts](./app/api/badge/[slug]/route.ts)
+- [app/api/projects/[id]/settings/route.ts](./app/api/projects/[id]/settings/route.ts)
+
+### Scoring and trust realism
+Implemented:
+- weighted scoring v2
+- grade derivation
+- confidence model
+- exploitability model
+- category-aware scoring
+
+Current files:
+- [lib/scoring.ts](./lib/scoring.ts)
+
+### Regression intelligence
+Implemented:
+- previous-vs-current scan comparison for the same project
+- `new`, `resolved`, `unchanged`
+- score delta
+- improved / stable / degraded summary
+- scan detail regression UI
+
+Current files:
+- [lib/regression.ts](./lib/regression.ts)
+- [components/ScanReportView.tsx](./components/ScanReportView.tsx)
+- [app/api/analyze/route.ts](./app/api/analyze/route.ts)
+
+### Advanced scanning foundations
+Implemented:
+- static code scanning
+- secret detection
+- dependency vulnerability scanning with OSV
+- website exposure scanning
+- safe exploit verification for selected website findings
+- noise reduction / duplicate suppression
+
+Current files:
+- [lib/scanner/index.ts](./lib/scanner/index.ts)
+- [lib/scanner/secret-scanner.ts](./lib/scanner/secret-scanner.ts)
+- [lib/scanner/dependency-scanner.ts](./lib/scanner/dependency-scanner.ts)
+- [lib/scanner/url-scanner.ts](./lib/scanner/url-scanner.ts)
 
 ---
 
-# 7. Multi-User Domain Model
+## 4. Current Domain Model
 
-The platform should move from:
+The current effective SaaS domain model is:
 
-- Project
-- Scan
-- Vulnerability
+- `User`
+- `Project`
+- `Scan`
+- `Vulnerability`
+- auth infrastructure tables
+  - `Account`
+  - `Session`
+  - `VerificationToken`
 
-to:
+### Ownership model
 
-- User
-- Project
-- Scan
-- Vulnerability
-- Usage tracking / plan metadata
+- one `User` owns many `Project`s
+- one `Project` has many `Scan`s
+- one `Scan` has many `Vulnerability` rows
 
-## Ownership model
+### Current key product fields
 
-- one User owns many Projects
-- one Project has many Scans
-- one Scan has many Vulnerabilities
-
-This is the main relationship model.
-
----
-
-# 8. Proposed Core Data Model
-
-## User
-
-Represents an authenticated platform account.
-
-Suggested fields:
-
-- `id`
-- `name`
-- `email`
-- `image`
-- `createdAt`
-- `updatedAt`
+#### User
 - `plan`
 - `monthlyScanLimit`
 - `monthlyScansUsed`
 - `monitoringProjectLimit`
 - `isActive`
 
-Purpose:
-- identity
-- billing tier / feature gating
-- usage enforcement
-
----
-
-## Project
-
-Represents a stable trust object that belongs to a user.
-
-Suggested fields:
-
-- `id`
+#### Project
 - `ownerId`
-- `name`
 - `projectType`
 - `canonicalKey`
-- `repoUrl`
-- `websiteUrl`
-- `sourceLabel`
 - `visibility`
 - `publicSlug`
 - `verificationToken`
 - `monitoringEnabled`
 - `badgeEligible`
 - `latestScanId`
-- `createdAt`
-- `updatedAt`
 
-Purpose:
-- trust identity
-- public/private control
-- badge eligibility
-- monitoring eligibility
-- ownership boundary
-
----
-
-## Scan
-
-Represents one execution result.
-
-Suggested fields:
-
-- `id`
-- `projectId`
-- `scanType`
-- `status`
+#### Scan
 - `score`
 - `summary`
-- `totalFiles`
-- `scannedFiles`
-- `linesScanned`
-- `errorMessage`
 - `aiSummary`
-- `createdAt`
-- `updatedAt`
+- regression fields:
+  - `previousScanId`
+  - `previousScore`
+  - `scoreDelta`
+  - `regressionStatus`
+  - `regressionSummary`
+  - `newFindingsCount`
+  - `resolvedFindingsCount`
+  - `unchangedFindingsCount`
 
-Optional later:
-- `initiatedByUserId`
-- `scanDurationMs`
-- `billingCategory`
-
-Purpose:
-- immutable scan event
-- historical trust record
-
----
-
-## Vulnerability
-
-Represents findings for a scan.
-
-Suggested fields:
-
-- `id`
-- `scanId`
-- `type`
+#### Vulnerability
+- `category`
 - `severity`
 - `confidence`
+- `exploitability`
 - `file`
 - `line`
-- `code`
 - `description`
 - `suggestion`
-- `evidence`
-- `createdAt`
-
-Purpose:
-- trust evidence
-- reporting
-- scoring inputs
 
 ---
 
-## Usage Record (optional for MVP, recommended later)
+## 5. Current Authorization State
 
-For MVP, usage can start as counters on `User`.
+### Already enforced
 
-Later, add a dedicated model:
+- scan creation requires authentication
+- new projects are created under the authenticated user
+- project identity is resolved within the owner namespace
 
-- `id`
-- `userId`
-- `periodStart`
-- `periodEnd`
-- `scansUsed`
-- `websiteScansUsed`
-- `repoScansUsed`
-- `zipScansUsed`
-- `monitoringProjectsUsed`
+### Still incomplete
 
-Purpose:
-- clearer billing logic
-- auditability
-- monthly resets
-- better reporting
+The codebase has the SaaS ownership foundation, but authorization is not yet fully tightened everywhere.
 
-For MVP, counters on `User` are acceptable.
+Still needed:
+- fully owner-filtered dashboard queries
+- full owner-only access for all private scan/project views
+- replacing all temporary internal-only controls with ownership-only controls where still applicable
+
+This is the next security hardening step for the SaaS layer.
 
 ---
 
-# 9. Suggested Prisma Direction
+## 6. What Is Partially Implemented
 
-The MVP schema should add a `User` model and connect `Project.ownerId` to `User.id`.
+### Usage limits
+Partially implemented:
+- user plan and quota fields exist in schema
 
-If using Auth.js + Prisma, Auth.js may also add:
+Not yet complete:
+- scan quota enforcement before scan creation
+- monthly usage increment/reset logic
+- plan-aware monitoring quota enforcement
+- dashboard usage display
 
-- `Account`
-- `Session`
-- `VerificationToken`
+### Monitoring
+Partially implemented:
+- `monitoringEnabled` exists on `Project`
+- projects maintain scan history
+- regression engine now supports future monitoring logic
 
-These should be treated as authentication infrastructure and not mixed with core product logic.
+Not yet complete:
+- scheduled rescans
+- cron or worker execution
+- monitoring alerts
+- score-change notifications
 
-## Product-level fields recommended on User
-- `plan`
-- `monthlyScanLimit`
-- `monthlyScansUsed`
-- `monitoringProjectLimit`
+### Plan gating
+Partially implemented:
+- `plan` exists on `User`
+- architecture is prepared for free/pro logic
 
-This is enough for MVP gating.
-
----
-
-# 10. Authorization Rules
-
-The platform must enforce permissions on the backend.
-
-## Rules
-
-### Scan creation
-A user must be authenticated to create a scan.
-
-### Project ownership
-A user may only:
-- view their own private projects
-- update their own project settings
-- enable monitoring on their own projects
-- make their own projects public
-
-### Public project access
-Public verification pages and badges can be viewed without login.
-
-### Private project access
-Private projects can only be viewed by the owner.
-
-### Dashboard access
-Dashboard data must be filtered by current authenticated user.
+Not yet complete:
+- actual feature gating by plan
+- enforcement for premium capabilities
+- upgrade flow
 
 ---
 
-# 11. Plans
+## 7. What Is Not Implemented Yet
 
-Start simple.
+These are still future phases:
 
-## Free plan
-Suggested restrictions:
-- limited scans per month
-- no continuous monitoring
-- limited number of public projects
-- badge feature optional or restricted
-- no smart contract audit
-- no advanced scanning later
-
-Example:
-- `3` scans per month
-- `0` monitoring projects
-
-## Pro plan
-Suggested capabilities:
-- higher scan quota
-- continuous monitoring enabled
-- public badges
-- trust pages
-- larger project limits
-
-Example:
-- `50` scans per month
-- `10` monitored projects
-
-## Enterprise plan (later)
-- custom limits
-- organization/team support
-- audit logs
-- account management
-- custom SLAs
-
----
-
-# 12. Usage Limit Enforcement
-
-Usage limits must be checked **before** a scan starts.
-
-## Required backend checks before scan creation
-
-When a user submits:
-- GitHub repo
-- website URL
-- ZIP file
-
-the backend should verify:
-
-1. user is authenticated
-2. user account is active
-3. user has remaining scan quota
-4. requested scan type is allowed by plan
-5. user is not violating any relevant limits
-
-If any check fails:
-- reject the request
-- return a clear error message
-- do not begin the scan
-
-## Important rule
-Never depend on the frontend alone to enforce limits.
-
----
-
-# 13. Continuous Monitoring Rules
-
-Continuous monitoring is a paid feature.
-
-## MVP gating logic
-A user can only enable `monitoringEnabled = true` when:
-- user is authenticated
-- user owns the project
-- user plan allows monitoring
-- user has remaining monitoring project quota
-
-If the project no longer qualifies:
-- disable monitoring
-- or prevent enabling it
-- or require plan upgrade
-
-Continuous monitoring should not be available on the free plan.
-
----
-
-# 14. Public Trust Pages in SaaS Context
-
-Public trust pages remain an important feature.
-
-However, the owner must control whether a project is public.
-
-## Public page rules
-A public verification page can exist only if:
-- project owner has enabled visibility = public
-- project has a valid latest scan
-- trust policy allows public display
-
-## Badge rules
-A badge can only be shown if:
-- project is public
-- latest scan exists
-- project is marked badgeEligible
-- owner has permission under their plan
-
-This makes trust display an owner-controlled feature.
-
----
-
-# 15. Suggested MVP User Flows
-
-## User registration flow
-1. user visits the site
-2. user signs in with GitHub or Google
-3. platform creates user account
-4. default plan = free
-5. default scan limit assigned
-
-## Scan flow
-1. authenticated user submits repo / website / ZIP
-2. backend checks quota
-3. project is created or resolved under that user
-4. scan runs
-5. scan is saved under the user-owned project
-6. scan count increments
-
-## Public trust flow
-1. user completes scan
-2. user opens scan detail
-3. user enables:
-   - public visibility
-   - badgeEligible
-4. public page becomes available
-5. badge becomes available
-
-## Upgrade flow (later)
-1. user hits free limit or wants monitoring
-2. user sees upgrade prompt
-3. user upgrades to pro
-4. plan and limits update
-
----
-
-# 16. Abuse Prevention Requirements
-
-Auth alone is not enough. The platform should also include basic abuse prevention.
-
-## Recommended MVP controls
-
-### Rate limiting
-- per IP
-- per authenticated user
-- especially on scan submission routes
-
-### File size limits
-- ZIP uploads must have a max size
-
-### Repo size / scan duration limits
-- avoid giant repository abuse
-
-### Website scan limits
-- prevent repeated abusive scanning
-- enforce scan concurrency limits later
-
-### Monitoring limits
-- cap monitored projects by plan
-
----
-
-# 17. Background Jobs and Cost Control
-
-Currently scans may run inline or synchronously.
-
-As the SaaS grows, scanning should eventually move to background workers.
-
-But for MVP, do not overbuild this unless scan load becomes a problem.
-
-## Recommended phased approach
-
-### MVP
-- keep current scan flow
-- enforce auth + quotas first
-
-### Next phase
-- add async job queue
-- add rescan scheduling
-- add worker timeouts
-- add scan concurrency limits
-
-The first priority is not queue architecture.
-The first priority is ownership and cost control.
-
----
-
-# 18. Dashboard Requirements for SaaS
-
-The dashboard should eventually become user-specific.
-
-## Dashboard should show
-- user’s projects
-- user’s recent scans
-- user’s current plan
-- monthly scans used / limit
-- monitored projects used / limit
-- public projects
-- badge-enabled projects
-
-This helps users understand value and usage.
-
----
-
-# 19. MVP Implementation Order
-
-This is the recommended implementation sequence.
-
-## Phase 1 – Auth Foundation
-- integrate Auth.js / NextAuth
-- add OAuth login
-- add User model
-- confirm sessions work
-
-## Phase 2 – Ownership
-- add `ownerId` to Project
-- require authenticated user for scan creation
-- attach all new projects to current user
-- filter dashboard/views to owned projects
-
-## Phase 3 – Usage Limits
-- add plan + quota fields to User
-- check usage before scan creation
-- increment usage after successful scan
-- show limits in UI
-
-## Phase 4 – Trust Controls Under Ownership
-- only owners can change:
-  - visibility
-  - badgeEligible
-  - monitoringEnabled
-
-## Phase 5 – Paid Feature Gating
-- restrict monitoring to paid plans
-- restrict premium features by plan
-
-## Phase 6 – Billing
-- integrate Stripe later
-- sync plan changes
-- manage upgrades/downgrades
-
-This is the safest MVP path.
-
----
-
-# 20. What Not to Build Yet
-
-To avoid overengineering, do **not** build these yet unless absolutely needed:
-
+- Stripe / billing integration
+- subscription lifecycle management
 - organizations / teams
 - collaborator roles
-- invite systems
-- fine-grained RBAC
-- audit log systems
-- usage billing per scan
-- complex subscription lifecycle logic
-- DNS/domain verification ownership proofs
-- multi-tenant enterprise admin systems
-
-These are later-phase concerns.
+- audit logs
+- enterprise RBAC
+- notifications for regressions or monitoring alerts
+- scheduled continuous monitoring workers
+- advanced usage records beyond simple counters
 
 ---
 
-# 21. Initial Product Constraints
+## 8. Current SaaS Priorities
 
-For the SaaS MVP, assume:
+The next safest implementation sequence is:
 
-- one user owns one or more projects
-- one project has one owner
-- scans are owned indirectly through projects
-- public trust pages are optional per project
-- monitoring is premium
-- free users are limited
+### Phase 1
+- tighten ownership and authorization everywhere
+- ensure dashboard and scan access are owner-correct
 
-This keeps the mental model simple.
+### Phase 2
+- enforce usage limits on the backend
+- free plan vs pro plan behavior
+
+### Phase 3
+- gate monitoring and premium trust features by plan
+
+### Phase 4
+- add scheduled rescans and monitoring automation
+
+### Phase 5
+- add billing and subscription infrastructure
+
+This keeps the system practical and avoids premature billing complexity.
 
 ---
 
-# 22. Recommended Environment Variables
+## 9. Recommended SaaS MVP Rules
 
-Likely environment variables needed in this phase:
+### Authentication
+- required for scan creation
+- GitHub OAuth is the current MVP provider
+
+### Ownership
+- every project belongs to a user
+- projects are the trust boundary
+
+### Visibility
+- public trust artifacts should remain owner-controlled
+
+### Backend enforcement
+- usage and permission checks must happen server-side
+
+### Trust-first product logic
+- auth and SaaS controls support the trust platform
+- they should not replace the trust-product direction
+
+---
+
+## 10. Environment Variables
+
+Current relevant variables include:
 
 - `DATABASE_URL`
 - `NEXTAUTH_SECRET`
 - `NEXTAUTH_URL`
 - `GITHUB_ID`
 - `GITHUB_SECRET`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
+- `NEXT_PUBLIC_APP_URL`
+- `ANTHROPIC_API_KEY`
+- `GITHUB_TOKEN`
+- `INTERNAL_ADMIN_TOKEN`
 
-Later:
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-
----
-
-# 23. Suggested Engineering Guidelines
-
-When implementing the SaaS phase:
-
-1. prefer the smallest stable auth solution
-2. keep ownership checks server-side
-3. keep plan logic centralized
-4. keep scan quota checks reusable
-5. do not scatter billing logic across many files
-6. preserve current trust-platform behavior while adding auth
-7. avoid breaking the current public verification page and badge behavior
+Note:
+- `INTERNAL_ADMIN_TOKEN` is still a temporary internal MVP control and should eventually be replaced by full ownership-based trust settings control.
 
 ---
 
-# 24. Success Criteria
+## 11. Current Risks / Gaps
 
-The SaaS architecture phase is successful if:
+The main SaaS risks at the current stage are:
 
-- users can sign in
-- each project belongs to a user
-- scan creation requires auth
-- free users cannot scan infinitely
-- private/public trust pages are owner-controlled
-- monitoring is gated to paid plans
-- the platform is protected from obvious free-tier abuse
+1. Ownership model exists, but authorization is not yet fully complete across all surfaces
+2. User quota fields exist, but usage enforcement is not yet active
+3. Monitoring toggles exist, but no actual monitoring scheduler exists
+4. Public trust features exist, but plan-based gating is not yet enforced
 
----
-
-# 25. Long-Term SaaS Vision
-
-Long term, Almond teAI should become:
-
-- a multi-user security verification platform
-- a trust layer for AI-built software
-- a subscription SaaS business
-- a platform with public trust records and premium monitoring
-
-In that future state:
-- developers use Almond teAI before launch
-- teams use it continuously
-- users and investors rely on the trust record
-- public badges spread Almond teAI across the web
+These are the correct next architecture priorities.
 
 ---
 
-# 26. Summary
+## 12. Current Success State
 
-The current system is already a strong trust-platform MVP.
+Almond teAI already has a strong SaaS foundation compared with the original MVP:
 
-The next architecture phase is to make it a real SaaS by adding:
+- authenticated users
+- user-owned projects
+- project-centric trust model
+- public verification pages
+- trust badges
+- exploit verification
+- regression intelligence
+- professional reporting
 
-- authentication
-- user ownership
+This means the platform has already moved beyond a simple scanner and into a real trust-platform architecture.
+
+---
+
+## 13. Next Implementation Target
+
+The next practical SaaS milestone should be:
+
+- complete owner-based authorization
 - quota enforcement
-- paid feature gating
+- plan-aware monitoring eligibility
+- user-specific dashboard usage visibility
 
-The MVP goal is not full enterprise infrastructure.
-
-The MVP goal is:
-
-> secure ownership + limited free usage + paid monitoring eligibility
-
-This is the next foundation required for Almond teAI to become a real product.
+That is the smallest correct step before billing or full continuous monitoring automation.
