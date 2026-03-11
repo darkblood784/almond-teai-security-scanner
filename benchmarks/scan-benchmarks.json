@@ -1,0 +1,182 @@
+{
+  "version": 1,
+  "description": "Internal Almond teAI benchmark targets for score-consistency regression checks.",
+  "benchmarks": [
+    {
+      "id": "repo-committed-env",
+      "title": "Committed .env file",
+      "mode": "github",
+      "target": "internal-fixture:repo-committed-env",
+      "expected": {
+        "requiredFindingTypes": ["Exposed Secret"],
+        "requiredFindings": [
+          {
+            "type": "Exposed Secret",
+            "category": "secret",
+            "severity": "critical",
+            "exploitability": "confirmed"
+          }
+        ],
+        "scoreRange": { "min": 0, "max": 64 },
+        "acceptableGrades": ["D", "F"]
+      }
+    },
+    {
+      "id": "repo-hardcoded-secret",
+      "title": "Real hardcoded secret in source",
+      "mode": "github",
+      "target": "internal-fixture:repo-hardcoded-secret",
+      "expected": {
+        "requiredFindingTypes": ["Hardcoded Secret", "Exposed Secret"],
+        "minimumSeverityCounts": { "critical": 1 },
+        "scoreRange": { "min": 0, "max": 70 },
+        "acceptableGrades": ["D", "F"]
+      }
+    },
+    {
+      "id": "repo-vulnerable-dependency",
+      "title": "Known vulnerable dependency",
+      "mode": "github",
+      "target": "internal-fixture:repo-vulnerable-dependency",
+      "expected": {
+        "requiredFindingTypes": ["Vulnerable Dependency"],
+        "requiredFindings": [
+          {
+            "type": "Vulnerable Dependency",
+            "category": "dependency",
+            "exploitability": "possible"
+          }
+        ],
+        "scoreRange": { "min": 0, "max": 85 },
+        "acceptableGrades": ["C", "D", "F"]
+      }
+    },
+    {
+      "id": "repo-docs-fake-secrets",
+      "title": "Docs/examples fake secret suppression",
+      "mode": "github",
+      "target": "internal-fixture:repo-docs-fake-secrets",
+      "expected": {
+        "forbiddenFindingTypes": ["Hardcoded Secret", "Exposed Secret"],
+        "scoreRange": { "min": 90, "max": 100 },
+        "acceptableGrades": ["A"]
+      }
+    },
+    {
+      "id": "repo-repeated-noise",
+      "title": "Repeated-pattern noise suppression",
+      "mode": "github",
+      "target": "internal-fixture:repo-repeated-noise",
+      "expected": {
+        "maximumFindings": 8,
+        "scoreRange": { "min": 70, "max": 95 },
+        "acceptableGrades": ["B", "C", "A"]
+      }
+    },
+    {
+      "id": "website-header-only-weak",
+      "title": "Header-only weak website",
+      "mode": "website",
+      "target": "internal-fixture:website-header-only-weak",
+      "expected": {
+        "requiredFindingTypes": ["Missing HSTS Header", "Missing Content-Security-Policy"],
+        "scoreRange": { "min": 75, "max": 98 },
+        "acceptableGrades": ["A", "B", "C"]
+      }
+    },
+    {
+      "id": "website-exposed-env",
+      "title": "Publicly exposed .env",
+      "mode": "website",
+      "target": "internal-fixture:website-exposed-env",
+      "expected": {
+        "requiredFindingTypes": ["Exposed .env File"],
+        "requiredFindings": [
+          {
+            "type": "Exposed .env File",
+            "category": "exposure",
+            "severity": "critical",
+            "exploitability": "confirmed"
+          }
+        ],
+        "scoreRange": { "min": 0, "max": 64 },
+        "acceptableGrades": ["D", "F"]
+      }
+    },
+    {
+      "id": "website-exposed-git-head",
+      "title": "Publicly exposed .git/HEAD",
+      "mode": "website",
+      "target": "internal-fixture:website-exposed-git-head",
+      "expected": {
+        "requiredFindingTypes": ["Exposed Git Repository"],
+        "requiredFindings": [
+          {
+            "type": "Exposed Git Repository",
+            "category": "exposure",
+            "severity": "high"
+          }
+        ],
+        "scoreRange": { "min": 0, "max": 85 },
+        "acceptableGrades": ["C", "D", "F"]
+      }
+    },
+    {
+      "id": "website-cors-wildcard",
+      "title": "Wildcard CORS only",
+      "mode": "website",
+      "target": "internal-fixture:website-cors-wildcard",
+      "expected": {
+        "requiredFindingTypes": ["CORS Wildcard Origin"],
+        "requiredFindings": [
+          {
+            "type": "CORS Wildcard Origin",
+            "category": "configuration",
+            "severity": "low",
+            "exploitability": "possible"
+          }
+        ],
+        "scoreRange": { "min": 80, "max": 100 },
+        "acceptableGrades": ["A", "B"]
+      }
+    },
+    {
+      "id": "website-cors-wildcard-credentials",
+      "title": "Wildcard CORS with credentials",
+      "mode": "website",
+      "target": "internal-fixture:website-cors-wildcard-credentials",
+      "expected": {
+        "requiredFindingTypes": ["CORS Wildcard + Credentials"],
+        "requiredFindings": [
+          {
+            "type": "CORS Wildcard + Credentials",
+            "category": "configuration",
+            "severity": "critical",
+            "exploitability": "confirmed"
+          }
+        ],
+        "scoreRange": { "min": 0, "max": 64 },
+        "acceptableGrades": ["D", "F"]
+      }
+    },
+    {
+      "id": "website-plain-http",
+      "title": "Plain HTTP site",
+      "mode": "website",
+      "target": "internal-fixture:website-plain-http",
+      "expected": {
+        "requiredFindingTypes": ["No HTTPS / Unencrypted Connection"],
+        "requiredFindings": [
+          {
+            "type": "No HTTPS / Unencrypted Connection",
+            "category": "configuration",
+            "severity": "critical",
+            "confidence": "verified"
+          }
+        ],
+        "scoreRange": { "min": 0, "max": 64 },
+        "acceptableGrades": ["D", "F"]
+      }
+    }
+  ]
+}

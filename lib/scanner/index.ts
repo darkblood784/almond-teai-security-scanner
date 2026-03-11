@@ -11,7 +11,7 @@ import {
 import { calculateScore, type FindingConfidence } from '@/lib/scoring';
 import { scanSecrets } from './secret-scanner';
 import { scanDependencies } from './dependency-scanner';
-import type { ScanResult, VulnerabilityResult } from './types';
+import type { DependencyScanResult, ScanResult, VulnerabilityResult } from './types';
 
 interface SeverityCounts {
   critical: number;
@@ -21,12 +21,28 @@ interface SeverityCounts {
   info: number;
 }
 
+interface FileCollectionStats {
+  files: string[];
+  filesSkippedByType: number;
+  filesSkippedBySize: number;
+  filesSkippedByLimit: number;
+}
+
 const HIGH_VALUE_TYPES = new Set([
   'Hardcoded Secret',
   'SQL Injection',
   'Unsafe Code Execution',
   'Insecure Authentication',
 ]);
+
+const GENERIC_SECRET_PLACEHOLDERS = [
+  'example',
+  'sample',
+  'changeme',
+  'dummy',
+  'test',
+  'xxx',
+];
 
 function isScannerInternal(relPath: string): boolean {
   const normalized = relPath.replace(/\\/g, '/').toLowerCase();
@@ -56,6 +72,53 @@ function shouldSuppressPattern(relPath: string, patternType: string, severity: S
   if (HIGH_VALUE_TYPES.has(patternType)) return false;
   if (!isLowValueContext(relPath)) return false;
   return severity === 'low' || severity === 'medium' || severity === 'info';
+}
+
+function isCommentLine(lineContent: string): boolean {
+  const trimmed = lineContent.trim();
+  return trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*');
+}
+
+function isInstructionalLine(lineContent: string): boolean {
+  const normalized = lineContent.toLowerCase();
+  return (
+    normalized.includes('example') ||
+    normalized.includes('sample') ||
+    normalized.includes('tutorial') ||
+    normalized.includes('demo') ||
+    normalized.includes('placeholder') ||
+    normalized.includes('replace this')
+  );
+}
+
+function isGenericHardcodedSecretPattern(patternId: string, patternName: string): boolean {
+  return patternId === 'HC_GENERIC_SECRET' || patternName === 'Hardcoded Secret/Token';
+}
+
+function extractAssignedSecretValue(lineContent: string): string {
+  const match = lineContent.match(/[:=]\s*['"`]?([^'"`\s,;]+(?:\s[^'"`]+)?)['"`]?/);
+  return (match?.[1] ?? '').trim().toLowerCase();
+}
+
+function looksLikePlaceholderSecret(value: string): boolean {
+  if (!value) return true;
+  if (value.length < 8) return true;
+  return GENERIC_SECRET_PLACEHOLDERS.some(placeholder => value.includes(placeholder));
+}
+
+function shouldSuppressHardcodedSecretMatch(
+  relPath: string,
+  lineContent: string,
+  patternId: string,
+  patternName: string,
+): boolean {
+  if (!isGenericHardcodedSecretPattern(patternId, patternName)) return false;
+  if (isLowValueContext(relPath)) return true;
+  if (isCommentLine(lineContent)) return true;
+  if (isInstructionalLine(lineContent)) return true;
+
+  const assignedValue = extractAssignedSecretValue(lineContent);
+  return looksLikePlaceholderSecret(assignedValue);
 }
 
 function normalizedCode(code?: string): string {
@@ -137,7 +200,6 @@ function scanFile(filePath: string, relPath: string, content: string): Vulnerabi
   const lines = content.split('\n');
 
   for (const pattern of SECURITY_PATTERNS) {
-    if (pattern.type === 'Hardcoded Secret') continue;
     if (pattern.fileTypes && !pattern.fileTypes.includes(ext)) continue;
     if (shouldSuppressPattern(relPath, pattern.type, pattern.severity)) continue;
 
@@ -149,7 +211,11 @@ function scanFile(filePath: string, relPath: string, content: string): Vulnerabi
       const lineNumber = upToMatch.split('\n').length;
       const lineContent = lines[lineNumber - 1]?.trim() ?? '';
 
-      if (lineContent.startsWith('//') || lineContent.startsWith('#') || lineContent.startsWith('*')) {
+      if (isCommentLine(lineContent)) {
+        continue;
+      }
+
+      if (pattern.type === 'Hardcoded Secret' && shouldSuppressHardcodedSecretMatch(relPath, lineContent, pattern.id, pattern.name)) {
         continue;
       }
 
@@ -178,29 +244,39 @@ function scanFile(filePath: string, relPath: string, content: string): Vulnerabi
   return results;
 }
 
-function collectFiles(dir: string, collected: string[] = []): string[] {
-  if (collected.length >= MAX_FILES) return collected;
+function collectFiles(dir: string, stats: FileCollectionStats = {
+  files: [],
+  filesSkippedByType: 0,
+  filesSkippedBySize: 0,
+  filesSkippedByLimit: 0,
+}): FileCollectionStats {
+  if (stats.files.length >= MAX_FILES) return stats;
 
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });
   } catch {
-    return collected;
+    return stats;
   }
 
   for (const entry of entries) {
-    if (collected.length >= MAX_FILES) break;
+    if (stats.files.length >= MAX_FILES) {
+      stats.filesSkippedByLimit += 1;
+      continue;
+    }
 
     const fullPath = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (['node_modules', '.git', '.next', 'dist', 'build', '.cache', '__pycache__', '.venv', 'venv', 'coverage'].includes(entry.name)) {
         continue;
       }
-      collectFiles(fullPath, collected);
+      collectFiles(fullPath, stats);
     } else if (entry.isFile()) {
       const ext = path.extname(entry.name).toLowerCase();
-      if (SKIP_EXTENSIONS.has(ext)) continue;
-      if (SKIP_FILES.has(entry.name)) continue;
+      if (SKIP_EXTENSIONS.has(ext) || SKIP_FILES.has(entry.name)) {
+        stats.filesSkippedByType += 1;
+        continue;
+      }
 
       let stat: fs.Stats;
       try {
@@ -208,17 +284,21 @@ function collectFiles(dir: string, collected: string[] = []): string[] {
       } catch {
         continue;
       }
-      if (stat.size > MAX_FILE_SIZE) continue;
+      if (stat.size > MAX_FILE_SIZE) {
+        stats.filesSkippedBySize += 1;
+        continue;
+      }
 
-      collected.push(fullPath);
+      stats.files.push(fullPath);
     }
   }
 
-  return collected;
+  return stats;
 }
 
 export async function scanDirectory(dir: string): Promise<ScanResult> {
-  const allFiles = collectFiles(dir);
+  const fileStats = collectFiles(dir);
+  const allFiles = fileStats.files;
   const codeVulnerabilities: VulnerabilityResult[] = [];
   let linesScanned = 0;
   let scannedFiles = 0;
@@ -240,15 +320,17 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
     }
   }
 
-  const [secretVulnerabilities, dependencyVulnerabilities] = await Promise.all([
+  const [secretVulnerabilities, dependencyResult] = await Promise.all([
     scanSecrets(allFiles, dir),
     scanDependencies(dir),
   ]);
 
+  const dependencyScan = dependencyResult as DependencyScanResult;
+
   const vulnerabilities = dedupeVulnerabilities([
     ...codeVulnerabilities,
     ...secretVulnerabilities,
-    ...dependencyVulnerabilities,
+    ...dependencyScan.vulnerabilities,
   ]);
 
   const counts: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
@@ -268,12 +350,44 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
           counts.low && `${counts.low} low`,
         ].filter(Boolean).join(', ') + '.';
 
+  const finalSummary = dependencyScan.warning
+    ? `${summary}\n\nDependency scan note: ${dependencyScan.warning}`
+    : summary;
+  const filesSkipped = fileStats.filesSkippedByType + fileStats.filesSkippedBySize + fileStats.filesSkippedByLimit;
+  const coverageNotes: string[] = [];
+
+  coverageNotes.push(`Scanned ${scannedFiles} file${scannedFiles === 1 ? '' : 's'} out of ${allFiles.length + filesSkipped} collected candidate file${allFiles.length + filesSkipped === 1 ? '' : 's'}.`);
+
+  if (fileStats.filesSkippedByType > 0) {
+    coverageNotes.push(`${fileStats.filesSkippedByType} file${fileStats.filesSkippedByType === 1 ? '' : 's'} were skipped because their type is excluded from static scanning (for example binary, archive, lock, media, or database files).`);
+  }
+
+  if (fileStats.filesSkippedBySize > 0) {
+    coverageNotes.push(`${fileStats.filesSkippedBySize} file${fileStats.filesSkippedBySize === 1 ? '' : 's'} were skipped for exceeding the current size limit of ${Math.round(MAX_FILE_SIZE / 1024)} KB.`);
+  }
+
+  if (fileStats.filesSkippedByLimit > 0) {
+    coverageNotes.push(`${fileStats.filesSkippedByLimit} file${fileStats.filesSkippedByLimit === 1 ? '' : 's'} were not scanned because the repository exceeded the current per-scan file limit of ${MAX_FILES}.`);
+  }
+
+  if (!dependencyScan.completed && dependencyScan.warning) {
+    coverageNotes.push(dependencyScan.warning);
+  }
+
   return {
     score,
     totalFiles: allFiles.length,
     scannedFiles,
+    filesSkipped,
+    filesSkippedBySize: fileStats.filesSkippedBySize,
+    filesSkippedByType: fileStats.filesSkippedByType,
     linesScanned,
+    dependencyAnalysisComplete: dependencyScan.completed,
+    dependencyWarning: dependencyScan.warning,
+    coverageNotes,
+    safeVerificationOnly: false,
+    networkChecksPartial: false,
     vulnerabilities,
-    summary,
+    summary: finalSummary,
   };
 }

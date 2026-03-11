@@ -55,8 +55,36 @@ const SECRET_PATTERNS: SecretPattern[] = [
   },
 ];
 
+const ENV_FILE_EXCLUSIONS = new Set([
+  '.env.example',
+  '.env.sample',
+  '.env.template',
+  '.env.test.example',
+  '.env.local.example',
+]);
+
+const ENV_ASSIGNMENT_PATTERN = /(?:^|\n)\s*[A-Z0-9_]+\s*=\s*.+/m;
+
 function lineNumberFromIndex(content: string, index: number): number {
   return content.slice(0, index).split('\n').length;
+}
+
+function isSensitiveEnvFile(relPath: string): boolean {
+  const base = path.basename(relPath).toLowerCase();
+  if (ENV_FILE_EXCLUSIONS.has(base)) return false;
+  return base === '.env' || (base.startsWith('.env.') && !base.includes('.example'));
+}
+
+function firstEnvAssignmentLine(lines: string[]): { line: number; code: string } | null {
+  for (let index = 0; index < lines.length; index++) {
+    const code = lines[index].trim();
+    if (!code || code.startsWith('#')) continue;
+    if (/^[A-Z0-9_]+\s*=/.test(code)) {
+      return { line: index + 1, code: code.slice(0, 200) };
+    }
+  }
+
+  return null;
 }
 
 export async function scanSecrets(files: string[], rootDir: string): Promise<VulnerabilityResult[]> {
@@ -72,6 +100,22 @@ export async function scanSecrets(files: string[], rootDir: string): Promise<Vul
 
     const relPath = path.relative(rootDir, filePath);
     const lines = content.split('\n');
+
+    if (isSensitiveEnvFile(relPath) && ENV_ASSIGNMENT_PATTERN.test(content)) {
+      const firstAssignment = firstEnvAssignmentLine(lines);
+      results.push({
+        type: 'Committed Environment File',
+        category: 'secret',
+        severity: 'critical',
+        confidence: 'verified',
+        exploitability: 'confirmed',
+        file: relPath,
+        line: firstAssignment?.line,
+        code: firstAssignment?.code,
+        description: 'A committed environment file was detected in the repository. Environment files commonly contain secrets and should not be committed to source control.',
+        suggestion: 'Remove the .env file from the repository, rotate any exposed credentials, add .env* to .gitignore, and keep secrets in environment variables or a secret manager.',
+      });
+    }
 
     for (const pattern of SECRET_PATTERNS) {
       pattern.pattern.lastIndex = 0;

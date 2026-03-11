@@ -1,19 +1,38 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth } from '@/auth';
 import prisma from '@/lib/db';
+import { getPlanEntitlements } from '@/lib/entitlements';
 import { generatePdfBuffer } from '@/lib/pdf';
 
 export async function GET(
   _req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const scan = await prisma.scan.findUnique({
-    where:   { id: params.id },
+  const session = await auth();
+  const userId = session?.user?.id;
+
+  if (!userId) {
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
+  }
+
+  const scan = await prisma.scan.findFirst({
+    where: {
+      id: params.id,
+      project: {
+        ownerId: userId,
+      },
+    },
     include: {
       vulnerabilities: true,
       project: {
         select: {
           publicSlug: true,
           visibility: true,
+          owner: {
+            select: {
+              plan: true,
+            },
+          },
         },
       },
     },
@@ -27,7 +46,10 @@ export async function GET(
   }
 
   try {
-    const pdf = await generatePdfBuffer(scan);
+    const entitlements = getPlanEntitlements(scan.project?.owner?.plan);
+    const pdf = await generatePdfBuffer(scan, {
+      watermarked: !entitlements.cleanPdf,
+    });
     const name = (scan.repoName ?? scan.fileName ?? 'scan').replace(/[^a-zA-Z0-9_\-]/g, '_');
 
     return new NextResponse(pdf as unknown as BodyInit, {

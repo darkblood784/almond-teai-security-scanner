@@ -8,9 +8,22 @@ import { formatDate } from '@/lib/utils';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { strings } from '@/lib/i18n';
 import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
+import { buildScoreDrivers } from '@/lib/score-drivers';
+import { getPlanEntitlements } from '@/lib/entitlements';
 import type { Scan, Vulnerability } from '@prisma/client';
 
-type ScanWithVulns = Scan & {
+type ScanCoverageFields = {
+  filesSkipped?: number;
+  filesSkippedBySize?: number;
+  filesSkippedByType?: number;
+  dependencyAnalysisComplete?: boolean;
+  dependencyWarning?: string | null;
+  coverageNotes?: string | null;
+  safeVerificationOnly?: boolean;
+  networkChecksPartial?: boolean;
+};
+
+type ScanWithVulns = Scan & ScanCoverageFields & {
   vulnerabilities: Vulnerability[];
   project?: {
     id: string;
@@ -18,6 +31,9 @@ type ScanWithVulns = Scan & {
     badgeEligible: boolean;
     monitoringEnabled: boolean;
     publicSlug: string | null;
+    owner?: {
+      plan: string;
+    } | null;
   } | null;
 };
 
@@ -69,6 +85,14 @@ function regressionStatusLabel(status: string, t: typeof strings['en']) {
   }
 }
 
+function coverageStatusLabel(complete: boolean) {
+  return complete ? 'Complete' : 'Incomplete';
+}
+
+function yesNoLabel(value: boolean) {
+  return value ? 'Yes' : 'No';
+}
+
 function LocalBadgePreview({ score, createdAt, status }: { score: number; createdAt: Date | string; status: string }) {
   const grade = gradeLabel(score);
   const date = new Date(createdAt).toISOString().slice(0, 10);
@@ -96,8 +120,8 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
   const [visibility, setVisibility] = useState(scan.project?.visibility ?? 'private');
   const [savedVisibility, setSavedVisibility] = useState(scan.project?.visibility ?? 'private');
   const [badgeEligible, setBadgeEligible] = useState(scan.project?.badgeEligible ?? false);
+  const [savedBadgeEligible, setSavedBadgeEligible] = useState(scan.project?.badgeEligible ?? false);
   const [monitoringEnabled, setMonitoringEnabled] = useState(scan.project?.monitoringEnabled ?? false);
-  const [adminToken, setAdminToken] = useState('');
   const [saving, setSaving] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [copiedType, setCopiedType] = useState<'markdown' | 'html' | null>(null);
@@ -113,7 +137,6 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          token: adminToken,
           visibility,
           badgeEligible,
           monitoringEnabled,
@@ -125,6 +148,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
         setSettingsMessage({ type: 'error', text: data.error ?? 'Failed to save project settings.' });
       } else {
         setSavedVisibility(visibility);
+        setSavedBadgeEligible(badgeEligible);
         setSettingsMessage({ type: 'success', text: 'Project settings saved.' });
       }
     } catch {
@@ -182,6 +206,15 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
   const showRegression = Boolean(scan.previousScanId && scan.regressionStatus && scan.regressionSummary);
   const deltaValue = scan.scoreDelta ?? 0;
   const deltaText = `${deltaValue > 0 ? '+' : ''}${deltaValue}`;
+  const badgeActive = savedVisibility === 'public' && savedBadgeEligible;
+  const coverageNotes = (scan.coverageNotes ?? '')
+    .split('\n')
+    .map((note: string) => note.trim())
+    .filter(Boolean);
+  const scoreDrivers = buildScoreDrivers(scan.scanType as 'github' | 'upload' | 'website', vulns);
+  const isWebsiteScan = scan.scanType === 'website';
+  const entitlements = getPlanEntitlements(scan.project?.owner?.plan);
+  const isFreePlan = !entitlements.cleanPdf;
 
   async function copyEmbed(type: 'markdown' | 'html') {
     const value = type === 'markdown' ? markdownEmbed : htmlEmbed;
@@ -209,36 +242,43 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
           {t.report_back}
         </Link>
 
-        <div className="flex items-center gap-3">
-          {scan.scanType === 'website' && scan.websiteUrl && (
+        <div className="flex flex-col items-end gap-2">
+          <div className="flex items-center gap-3">
+            {scan.scanType === 'website' && scan.websiteUrl && (
+              <a
+                href={scan.websiteUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+              >
+                <ExternalLink className="h-4 w-4" />
+                {t.report_view_website}
+              </a>
+            )}
+            {scan.scanType !== 'website' && scan.repoUrl && (
+              <a
+                href={scan.repoUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+              >
+                <ExternalLink className="h-4 w-4" />
+                {t.report_view_repo}
+              </a>
+            )}
             <a
-              href={scan.websiteUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+              href={`/api/report/${scan.id}`}
+              className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
             >
-              <ExternalLink className="h-4 w-4" />
-              {t.report_view_website}
+              <Download className="h-4 w-4" />
+              {t.report_download}
             </a>
-          )}
-          {scan.scanType !== 'website' && scan.repoUrl && (
-            <a
-              href={scan.repoUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
-            >
-              <ExternalLink className="h-4 w-4" />
-              {t.report_view_repo}
-            </a>
-          )}
-          <a
-            href={`/api/report/${scan.id}`}
-            className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
-          >
-            <Download className="h-4 w-4" />
-            {t.report_download}
-          </a>
+          </div>
+          <p className="text-right text-xs text-gray-500">
+            {isFreePlan
+              ? 'Free plan exports are watermarked. Upgrade to Pro for clean PDF and certificate export.'
+              : 'Pro plan includes clean PDF export and certificate export when available.'}
+          </p>
         </div>
       </div>
 
@@ -338,14 +378,137 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
         </div>
       )}
 
+      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 card-shadow">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Why this score?</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Short explanation of the main factors that influenced this scan score.
+            </p>
+          </div>
+          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+            Score drivers
+          </span>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <p className="text-sm leading-relaxed text-slate-700">{scoreDrivers.summary}</p>
+        </div>
+
+        <div className="mt-5 space-y-3">
+          {scoreDrivers.drivers.map((driver: string) => (
+            <div key={driver} className="flex gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3">
+              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-slate-500" />
+              <p className="text-sm leading-relaxed text-gray-700">{driver}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 card-shadow">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Coverage Notes</h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Coverage and completeness details for this scan run.
+            </p>
+          </div>
+          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${
+            coverageNotes.length > 0 ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-green-200 bg-green-50 text-green-700'
+          }`}>
+            {coverageNotes.length > 0 ? 'Partial coverage notes present' : 'No notable coverage limits'}
+          </span>
+        </div>
+
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {isWebsiteScan ? (
+            <>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Checks run</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{scan.totalFiles}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Checks passed</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{scan.scannedFiles}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Sensitive paths probed</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{scan.linesScanned}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Safe verification only</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{yesNoLabel(scan.safeVerificationOnly ?? false)}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Network checks partial</p>
+                <p className={`mt-1 text-xl font-bold ${scan.networkChecksPartial ?? false ? 'text-amber-700' : 'text-gray-900'}`}>
+                  {yesNoLabel(scan.networkChecksPartial ?? false)}
+                </p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Files scanned</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{scan.scannedFiles}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Files skipped</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{scan.filesSkipped ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Skipped by size</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{scan.filesSkippedBySize ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Skipped by type</p>
+                <p className="mt-1 text-xl font-bold text-gray-900">{scan.filesSkippedByType ?? 0}</p>
+              </div>
+              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Dependency analysis</p>
+                <p className={`mt-1 text-xl font-bold ${scan.dependencyAnalysisComplete ?? true ? 'text-green-700' : 'text-amber-700'}`}>
+                  {coverageStatusLabel(scan.dependencyAnalysisComplete ?? true)}
+                </p>
+              </div>
+            </>
+          )}
+          {!isWebsiteScan && scan.dependencyWarning && (
+            <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 xl:col-span-2">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">Dependency warning</p>
+              <p className="mt-1 text-sm text-amber-800">{scan.dependencyWarning}</p>
+            </div>
+          )}
+        </div>
+
+        {coverageNotes.length > 0 && (
+          <div className="mt-5 rounded-xl border border-amber-100 bg-amber-50 p-4">
+            <div className="space-y-3">
+              {coverageNotes.map((note: string) => (
+                <div key={note} className="flex gap-3 text-sm text-amber-900">
+                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
+                  <p className="leading-relaxed">{note}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {publicSlug && badgeUrl && projectUrl && (
         <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 card-shadow">
           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">{t.badge_title}</h2>
           <p className="mt-1 text-sm text-gray-500">{t.badge_desc}</p>
+          {!entitlements.trustBadge && (
+            <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4">
+              <p className="text-sm leading-relaxed text-amber-800">
+                Trust badges are available on Pro. Free projects can still publish a public verification page, but badge embeds remain locked.
+              </p>
+            </div>
+          )}
 
           <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-5">
             <div className="flex flex-wrap items-center gap-4">
-              {savedVisibility === 'public' ? (
+              {badgeActive ? (
                 <a href={projectUrl} target="_blank" rel="noopener noreferrer">
                   <img src={badgeUrl} alt="Almond teAI verified badge" className="h-[74px] w-[332px]" />
                 </a>
@@ -354,20 +517,26 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
               )}
               <span className="text-sm text-gray-400">{t.badge_preview_note}</span>
             </div>
-            {savedVisibility !== 'public' && (
-              <p className="mt-3 text-sm text-gray-500">{t.badge_unavailable}</p>
+            {!badgeActive && (
+              <p className="mt-3 text-sm text-gray-500">
+                {savedVisibility !== 'public'
+                  ? t.badge_unavailable
+                  : 'Enable badge eligibility to publish the live trust badge.'}
+              </p>
             )}
           </div>
 
           <div className="mt-4 flex flex-wrap gap-3">
             <button
               onClick={() => copyEmbed('markdown')}
+              disabled={!badgeActive}
               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
             >
               {copiedType === 'markdown' ? t.badge_copied : t.badge_copy_markdown}
             </button>
             <button
               onClick={() => copyEmbed('html')}
+              disabled={!badgeActive}
               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
             >
               {copiedType === 'html' ? t.badge_copied : t.badge_copy_html}
@@ -393,8 +562,8 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
             )}
           </div>
 
-          <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div>
+          <div className="mt-5">
+            <div className="max-w-xs">
               <label className="block text-sm font-medium text-gray-700">Visibility</label>
               <select
                 value={visibility}
@@ -405,17 +574,6 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
                 <option value="public">Public</option>
               </select>
             </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700">Internal admin token</label>
-              <input
-                type="password"
-                value={adminToken}
-                onChange={e => setAdminToken(e.target.value)}
-                placeholder="Enter INTERNAL_ADMIN_TOKEN"
-                className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
-              />
-            </div>
           </div>
 
           <div className="mt-4 flex flex-wrap gap-6">
@@ -424,6 +582,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
                 type="checkbox"
                 checked={badgeEligible}
                 onChange={e => setBadgeEligible(e.target.checked)}
+                disabled={!entitlements.trustBadge}
                 className="h-4 w-4 rounded border-gray-300"
               />
               Badge eligible
@@ -434,11 +593,24 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
                 type="checkbox"
                 checked={monitoringEnabled}
                 onChange={e => setMonitoringEnabled(e.target.checked)}
+                disabled={!entitlements.continuousMonitoring}
                 className="h-4 w-4 rounded border-gray-300"
               />
               Monitoring enabled
             </label>
           </div>
+
+          {(!entitlements.trustBadge || !entitlements.continuousMonitoring) && (
+            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm leading-relaxed text-slate-700">
+                {entitlements.trustBadge
+                  ? 'Continuous monitoring is available on Pro.'
+                  : entitlements.continuousMonitoring
+                  ? 'Trust badge publishing is available on Pro.'
+                  : 'Trust badge publishing and continuous monitoring are available on Pro.'}
+              </p>
+            </div>
+          )}
 
           <div className="mt-5 flex items-center gap-3">
             <button

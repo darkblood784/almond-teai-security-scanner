@@ -1,14 +1,33 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 import type { Scan, Vulnerability } from '@prisma/client';
 import { gradeLabel, scoreInterpretation, scoreStatusKey } from '@/lib/scoring';
+import { buildScoreDrivers } from '@/lib/score-drivers';
 
-type ScanWithVulns = Scan & {
+type ScanCoverageFields = {
+  filesSkipped?: number;
+  filesSkippedBySize?: number;
+  filesSkippedByType?: number;
+  dependencyAnalysisComplete?: boolean;
+  dependencyWarning?: string | null;
+  coverageNotes?: string | null;
+  safeVerificationOnly?: boolean;
+  networkChecksPartial?: boolean;
+};
+
+type ScanWithVulns = Scan & ScanCoverageFields & {
   vulnerabilities: Vulnerability[];
   project?: {
     publicSlug: string | null;
     visibility: string;
+    owner?: {
+      plan: string;
+    } | null;
   } | null;
 };
+
+interface PdfRenderOptions {
+  watermarked: boolean;
+}
 
 function severityOrder(severity: string) {
   return { critical: 0, high: 1, medium: 2, low: 3, info: 4 }[severity.toLowerCase()] ?? 5;
@@ -565,7 +584,174 @@ function verificationText(verificationUrl: string | null): any {
   };
 }
 
-export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
+function coverageStatusText(value: boolean | null | undefined): string {
+  return value === false ? 'Incomplete' : 'Complete';
+}
+
+function yesNoText(value: boolean | null | undefined): string {
+  return value ? 'Yes' : 'No';
+}
+
+function coverageMetricCard(label: string, value: string, tone: 'neutral' | 'success' | 'warning' = 'neutral') {
+  const palette = {
+    neutral: { text: '#0f172a', bg: '#f8fafc' },
+    success: { text: '#15803d', bg: '#f0fdf4' },
+    warning: { text: '#c2410c', bg: '#fff7ed' },
+  }[tone];
+
+  return {
+    table: {
+      widths: ['*'],
+      body: [[{
+        stack: [
+          { text: label, fontSize: 8.2, bold: true, color: '#94a3b8', margin: [0, 0, 0, 6] },
+          { text: value, fontSize: 14, bold: true, color: palette.text },
+        ],
+        border: [false, false, false, false],
+      }]],
+    },
+    layout: {
+      fillColor: () => palette.bg,
+      hLineWidth: () => 0,
+      vLineWidth: () => 0,
+      paddingLeft: () => 12,
+      paddingRight: () => 12,
+      paddingTop: () => 12,
+      paddingBottom: () => 12,
+    },
+  };
+}
+
+function coverageNotesSection(scan: ScanWithVulns) {
+  const notes = (scan.coverageNotes ?? '')
+    .split('\n')
+    .map((note: string) => note.trim())
+    .filter(Boolean);
+
+  const dependencyComplete = scan.dependencyAnalysisComplete ?? true;
+  const safeVerificationOnly = scan.safeVerificationOnly ?? false;
+  const networkChecksPartial = scan.networkChecksPartial ?? false;
+
+  const metrics = scan.scanType === 'website'
+    ? [
+        coverageMetricCard('Checks Run', String(scan.totalFiles), 'neutral'),
+        coverageMetricCard('Checks Passed', String(scan.scannedFiles), 'neutral'),
+        coverageMetricCard('Safe Read-Only', yesNoText(safeVerificationOnly), safeVerificationOnly ? 'success' : 'neutral'),
+        coverageMetricCard('Network Partial', yesNoText(networkChecksPartial), networkChecksPartial ? 'warning' : 'neutral'),
+      ]
+    : [
+        coverageMetricCard('Files Scanned', String(scan.scannedFiles), 'neutral'),
+        coverageMetricCard('Files Skipped', String(scan.filesSkipped ?? 0), (scan.filesSkipped ?? 0) > 0 ? 'warning' : 'neutral'),
+        coverageMetricCard('Skipped by Size', String(scan.filesSkippedBySize ?? 0), (scan.filesSkippedBySize ?? 0) > 0 ? 'warning' : 'neutral'),
+        coverageMetricCard('Skipped by Type', String(scan.filesSkippedByType ?? 0), (scan.filesSkippedByType ?? 0) > 0 ? 'warning' : 'neutral'),
+      ];
+
+  const repoMeta = scan.scanType === 'website'
+    ? []
+    : [
+        {
+          columns: [
+            { width: 130, text: 'Dependency analysis', fontSize: 9.2, bold: true, color: '#64748b' },
+            { width: '*', text: coverageStatusText(dependencyComplete), fontSize: 9.5, color: dependencyComplete ? '#15803d' : '#c2410c', bold: true },
+          ],
+          margin: [0, 0, 0, scan.dependencyWarning ? 6 : 0],
+        },
+        ...(scan.dependencyWarning
+          ? [{
+              text: scan.dependencyWarning,
+              fontSize: 9.3,
+              color: '#9a3412',
+              lineHeight: 1.3,
+              margin: [0, 0, 0, 0],
+            }]
+          : []),
+      ];
+
+  return {
+    table: {
+      widths: ['*'],
+      body: [[{
+        stack: [
+          { text: 'Coverage Notes', color: '#94a3b8', fontSize: 9, bold: true, margin: [0, 0, 0, 10] },
+          {
+            table: {
+              widths: ['*', '*', '*', '*'],
+              body: [metrics],
+            },
+            layout: {
+              hLineWidth: () => 0,
+              vLineWidth: () => 0,
+              paddingLeft: () => 6,
+              paddingRight: () => 6,
+              paddingTop: () => 0,
+              paddingBottom: () => 0,
+            },
+            margin: [0, 0, 0, repoMeta.length > 0 || notes.length > 0 ? 12 : 0],
+          },
+          ...(repoMeta.length > 0
+            ? [{
+                table: {
+                  widths: ['*'],
+                  body: [[{
+                    stack: repoMeta,
+                    border: [false, false, false, false],
+                  }]],
+                },
+                layout: {
+                  fillColor: () => '#f8fafc',
+                  hLineWidth: () => 0,
+                  vLineWidth: () => 0,
+                  paddingLeft: () => 12,
+                  paddingRight: () => 12,
+                  paddingTop: () => 10,
+                  paddingBottom: () => 10,
+                },
+                margin: [0, 0, 0, notes.length > 0 ? 10 : 0],
+              }]
+            : []),
+          ...(notes.length > 0
+            ? [{
+                table: {
+                  widths: ['*'],
+                  body: [[{
+                    ul: notes.map((note: string) => ({
+                      text: note,
+                      margin: [0, 0, 0, 4],
+                    })),
+                    fontSize: 9.5,
+                    color: '#374151',
+                    border: [false, false, false, false],
+                  }]],
+                },
+                layout: {
+                  fillColor: () => '#f8fafc',
+                  hLineWidth: () => 0,
+                  vLineWidth: () => 0,
+                  paddingLeft: () => 12,
+                  paddingRight: () => 12,
+                  paddingTop: () => 10,
+                  paddingBottom: () => 8,
+                },
+              }]
+            : []),
+        ],
+        border: [false, false, false, false],
+      }]],
+    },
+    layout: {
+      fillColor: () => '#ffffff',
+      hLineWidth: () => 0,
+      vLineWidth: () => 0,
+      paddingLeft: () => 18,
+      paddingRight: () => 18,
+      paddingTop: () => 16,
+      paddingBottom: () => 16,
+    },
+    margin: [0, 0, 0, 18],
+  };
+}
+
+export async function generatePdfBuffer(scan: ScanWithVulns, options: PdfRenderOptions): Promise<Buffer> {
   const PdfPrinter = require('pdfmake/build/pdfmake');
   const vfsFonts = require('pdfmake/build/vfs_fonts');
   PdfPrinter.vfs = vfsFonts.pdfMake?.vfs ?? vfsFonts.vfs;
@@ -593,48 +779,41 @@ export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
   const verificationUrl = scan.project?.visibility === 'public' && scan.project.publicSlug
     ? `${appUrl || ''}/projects/${scan.project.publicSlug}`
     : null;
+  const scoreDrivers = buildScoreDrivers(scan.scanType as 'github' | 'upload' | 'website', scan.vulnerabilities);
+  const verificationFooterText = verificationUrl ?? 'Verification URL unavailable for private reports';
 
   const docDef: any = {
     pageSize: 'A4',
     pageMargins: [44, 44, 44, 42],
     defaultStyle: { font: 'Roboto', fontSize: 10, color: '#111827' },
-    background: (currentPage: number, pageSize: { width: number; height: number }) => {
-      if (currentPage === 1) return null;
-
-      return [
+    ...(options.watermarked ? {
+      watermark: {
+        text: 'Almond teAI\nSecurity Verification',
+        color: '#cbd5e1',
+        opacity: 0.16,
+        bold: true,
+        angle: -24,
+      },
+    } : {}),
+    footer: (currentPage: number, pageCount: number) => ({
+      margin: [44, 0, 44, 16],
+      stack: [
         {
-          canvas: [
-            {
-              type: 'rect',
-              x: pageSize.width - 190,
-              y: pageSize.height - 92,
-              w: 136,
-              h: 42,
-              color: '#fafafa',
-              r: 8,
-            },
+          columns: [
+            { text: 'Almond teAI Security Report', fontSize: 8.5, color: '#64748b' },
+            { text: `Report ID: ${scan.id}`, fontSize: 8.5, color: '#64748b', alignment: 'center' },
+            { text: `Page ${currentPage} of ${pageCount}`, fontSize: 8.5, color: '#64748b', alignment: 'right' },
           ],
         },
         {
-          text: 'Almond teAI',
-          fontSize: 10,
-          bold: true,
-          color: '#d1d5db',
-          absolutePosition: { x: pageSize.width - 174, y: pageSize.height - 80 },
-        },
-        {
-          text: 'Security Verification',
+          text: verificationFooterText,
           fontSize: 7.4,
-          color: '#d1d5db',
-          absolutePosition: { x: pageSize.width - 174, y: pageSize.height - 66 },
+          color: '#94a3b8',
+          alignment: 'center',
+          margin: [0, 3, 0, 0],
+          link: verificationUrl ?? undefined,
+          decoration: verificationUrl ? 'underline' : undefined,
         },
-      ];
-    },
-    footer: (currentPage: number, pageCount: number) => ({
-      margin: [44, 0, 44, 18],
-      columns: [
-        { text: 'Almond teAI Security Report', fontSize: 8.5, color: '#64748b' },
-        { text: `Page ${currentPage} of ${pageCount}`, fontSize: 8.5, color: '#64748b', alignment: 'right' },
       ],
     }),
     content: [
@@ -674,19 +853,41 @@ export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
       },
       {
         table: {
-          widths: ['*'],
-          body: [[{
-            stack: [
-              { text: target, fontSize: 22, bold: true, color: '#0f172a', margin: [0, 0, 0, 8] },
-              {
-                columns: [
-                  { text: typeLabel, fontSize: 10, color: '#64748b' },
-                  { text: new Date(scan.createdAt).toLocaleString(), fontSize: 10, color: '#64748b', alignment: 'right' },
-                ],
-              },
-            ],
-            border: [false, false, false, false],
-          }]],
+          widths: ['*', 120],
+          body: [[
+            {
+              stack: [
+                { text: target, fontSize: 22, bold: true, color: '#0f172a', margin: [0, 0, 0, 8] },
+                {
+                  columns: [
+                    { text: typeLabel, fontSize: 10, color: '#64748b' },
+                    { text: new Date(scan.createdAt).toLocaleString(), fontSize: 10, color: '#64748b', alignment: 'right' },
+                  ],
+                },
+              ],
+              border: [false, false, false, false],
+            },
+            {
+              stack: [
+                {
+                  text: options.watermarked ? 'Watermarked Report' : 'Clean Report',
+                  fontSize: 9,
+                  bold: true,
+                  color: options.watermarked ? '#c2410c' : '#15803d',
+                  alignment: 'right',
+                  margin: [0, 0, 0, 6],
+                },
+                {
+                  text: `Report ID\n${scan.id}`,
+                  fontSize: 8.6,
+                  color: '#64748b',
+                  alignment: 'right',
+                  lineHeight: 1.35,
+                },
+              ],
+              border: [false, false, false, false],
+            },
+          ]],
         },
         layout: {
           fillColor: () => '#ffffff',
@@ -841,6 +1042,34 @@ export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
         },
         margin: [0, 8, 0, 18],
       },
+      {
+        table: {
+          widths: ['*'],
+          body: [[{
+            stack: [
+              { text: 'Why this score?', color: '#94a3b8', fontSize: 9, bold: true, margin: [0, 0, 0, 8] },
+              { text: scoreDrivers.summary, fontSize: 10.2, color: '#111827', lineHeight: 1.34, margin: [0, 0, 0, 10] },
+              {
+                ul: scoreDrivers.drivers.slice(0, 3).map(text => ({ text, margin: [0, 0, 0, 3] })),
+                fontSize: 9.6,
+                color: '#374151',
+              },
+            ],
+            border: [false, false, false, false],
+          }]],
+        },
+        layout: {
+          fillColor: () => '#f8fafc',
+          hLineWidth: () => 0,
+          vLineWidth: () => 0,
+          paddingLeft: () => 18,
+          paddingRight: () => 18,
+          paddingTop: () => 16,
+          paddingBottom: () => 16,
+        },
+        margin: [0, 0, 0, 18],
+      },
+      coverageNotesSection(scan),
       {
         table: {
           widths: ['*', '*', '*', '*', '*'],

@@ -32,6 +32,8 @@ interface VerificationProject {
   id: string;
   name: string;
   projectType: string;
+  publicSlug: string | null;
+  badgeEligible: boolean;
   repoUrl: string | null;
   websiteUrl: string | null;
   latestScan: VerificationScan & { vulnerabilities: VerificationVulnerability[] };
@@ -93,6 +95,7 @@ export default function ProjectVerificationView({ project }: { project: Verifica
 
   const criticalCount = latestScan.vulnerabilities.filter(v => v.severity === 'critical').length;
   const publicSourceUrl = project.projectType === 'website' ? project.websiteUrl : project.repoUrl;
+  const badgeUrl = project.badgeEligible && project.publicSlug ? `/api/badge/${project.publicSlug}` : null;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
@@ -117,6 +120,11 @@ export default function ProjectVerificationView({ project }: { project: Verifica
               This public page shows Almond teAI&apos;s latest automated security verification record for this project.
               It is intended to improve transparency and trust, not to guarantee absolute security.
             </p>
+            {badgeUrl && (
+              <div className="mt-5">
+                <img src={badgeUrl} alt="Almond teAI trust badge" className="h-[74px] w-[332px]" />
+              </div>
+            )}
             {publicSourceUrl && (
               <a
                 href={publicSourceUrl}
