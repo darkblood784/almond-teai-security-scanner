@@ -30,6 +30,14 @@ export interface UrlScanResult {
   totalChecks: number;
   passedChecks: number;
   probedPaths: number;
+  filesSkipped: number;
+  filesSkippedBySize: number;
+  filesSkippedByType: number;
+  dependencyAnalysisComplete: boolean;
+  dependencyWarning: string | null;
+  coverageNotes: string[];
+  safeVerificationOnly: boolean;
+  networkChecksPartial: boolean;
 }
 
 const REQUIRED_HEADERS: Array<{
@@ -556,6 +564,7 @@ async function runExploitVerification(base: string, findings: UrlVulnerability[]
 
 export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   const vulnerabilities: UrlVulnerability[] = [];
+  let networkChecksPartial = false;
 
   let target: string;
   try {
@@ -738,6 +747,9 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
     const { path, type, category, severity, description, suggestion, status } = probeResult.value;
     probedPaths++;
     totalChecks++;
+    if (status == null) {
+      networkChecksPartial = true;
+    }
     const shouldFlagGraphql = path === '/graphql' && (status === 200 || status === 400 || status === 405);
     if (status === 200 || shouldFlagGraphql) {
       vulnerabilities.push(createWebsiteFinding({
@@ -767,6 +779,14 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   if (criticalCount > 0) summary += ` (${criticalCount} critical)`;
   if (highCount > 0) summary += `, ${highCount} high severity`;
   summary += `. Security score: ${score}/100.`;
+  const coverageNotes: string[] = [
+    `Website verification used safe, read-only requests only. No exploit attempts, fuzzing, or destructive actions were performed.`,
+    `Executed ${totalChecks} automated check${totalChecks === 1 ? '' : 's'}, with ${probedPaths} sensitive path probe${probedPaths === 1 ? '' : 's'}.`,
+  ];
+
+  if (networkChecksPartial) {
+    coverageNotes.push('Some network-dependent checks did not return a complete response, so website coverage was partially limited for this run.');
+  }
 
   return {
     score,
@@ -775,5 +795,13 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
     totalChecks,
     passedChecks,
     probedPaths,
+    filesSkipped: 0,
+    filesSkippedBySize: 0,
+    filesSkippedByType: 0,
+    dependencyAnalysisComplete: true,
+    dependencyWarning: null,
+    coverageNotes,
+    safeVerificationOnly: true,
+    networkChecksPartial,
   };
 }

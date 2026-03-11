@@ -1,0 +1,175 @@
+{
+  "results": [
+    {
+      "id": "repo-committed-env",
+      "mode": "github",
+      "score": 42,
+      "grade": "F",
+      "findings": [
+        {
+          "type": "Exposed Secret",
+          "category": "secret",
+          "severity": "critical",
+          "confidence": "verified",
+          "exploitability": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "repo-hardcoded-secret",
+      "mode": "github",
+      "score": 58,
+      "grade": "D",
+      "findings": [
+        {
+          "type": "Hardcoded Secret",
+          "category": "code",
+          "severity": "critical",
+          "confidence": "likely",
+          "exploitability": "none"
+        }
+      ]
+    },
+    {
+      "id": "repo-vulnerable-dependency",
+      "mode": "github",
+      "score": 79,
+      "grade": "C",
+      "findings": [
+        {
+          "type": "Vulnerable Dependency",
+          "category": "dependency",
+          "severity": "high",
+          "confidence": "verified",
+          "exploitability": "possible"
+        }
+      ]
+    },
+    {
+      "id": "repo-docs-fake-secrets",
+      "mode": "github",
+      "score": 100,
+      "grade": "A",
+      "findings": []
+    },
+    {
+      "id": "repo-repeated-noise",
+      "mode": "github",
+      "score": 88,
+      "grade": "B",
+      "findings": [
+        {
+          "type": "Misconfiguration",
+          "category": "configuration",
+          "severity": "medium",
+          "confidence": "detected",
+          "exploitability": "none"
+        },
+        {
+          "type": "Misconfiguration",
+          "category": "configuration",
+          "severity": "medium",
+          "confidence": "detected",
+          "exploitability": "none"
+        }
+      ]
+    },
+    {
+      "id": "website-header-only-weak",
+      "mode": "website",
+      "score": 92,
+      "grade": "A",
+      "findings": [
+        {
+          "type": "Missing HSTS Header",
+          "category": "configuration",
+          "severity": "high",
+          "confidence": "detected",
+          "exploitability": "none"
+        },
+        {
+          "type": "Missing Content-Security-Policy",
+          "category": "configuration",
+          "severity": "medium",
+          "confidence": "detected",
+          "exploitability": "possible"
+        }
+      ]
+    },
+    {
+      "id": "website-exposed-env",
+      "mode": "website",
+      "score": 36,
+      "grade": "F",
+      "findings": [
+        {
+          "type": "Exposed .env File",
+          "category": "exposure",
+          "severity": "critical",
+          "confidence": "verified",
+          "exploitability": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "website-exposed-git-head",
+      "mode": "website",
+      "score": 71,
+      "grade": "C",
+      "findings": [
+        {
+          "type": "Exposed Git Repository",
+          "category": "exposure",
+          "severity": "high",
+          "confidence": "verified",
+          "exploitability": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "website-cors-wildcard",
+      "mode": "website",
+      "score": 96,
+      "grade": "A",
+      "findings": [
+        {
+          "type": "CORS Wildcard Origin",
+          "category": "configuration",
+          "severity": "low",
+          "confidence": "detected",
+          "exploitability": "possible"
+        }
+      ]
+    },
+    {
+      "id": "website-cors-wildcard-credentials",
+      "mode": "website",
+      "score": 40,
+      "grade": "F",
+      "findings": [
+        {
+          "type": "CORS Wildcard + Credentials",
+          "category": "configuration",
+          "severity": "critical",
+          "confidence": "verified",
+          "exploitability": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "website-plain-http",
+      "mode": "website",
+      "score": 49,
+      "grade": "F",
+      "findings": [
+        {
+          "type": "No HTTPS / Unencrypted Connection",
+          "category": "configuration",
+          "severity": "critical",
+          "confidence": "verified",
+          "exploitability": "none"
+        }
+      ]
+    }
+  ]
+}

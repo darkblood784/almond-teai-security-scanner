@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import type { Severity } from './patterns';
-import type { VulnerabilityResult } from './types';
+import type { DependencyScanResult, VulnerabilityResult } from './types';
 
 interface DependencyEntry {
   name: string;
@@ -403,7 +403,7 @@ function dependencyDescription(entry: DependencyEntry, vuln: OsvVulnerability, s
   return `Dependency: ${entry.name}. Installed version: ${entry.version}.${safeText} ${summary}`.trim();
 }
 
-async function queryOsv(entry: DependencyEntry): Promise<OsvVulnerability[]> {
+async function queryOsv(entry: DependencyEntry): Promise<{ vulns: OsvVulnerability[]; failed: boolean }> {
   try {
     const response = await fetch('https://api.osv.dev/v1/query', {
       method: 'POST',
@@ -417,11 +417,11 @@ async function queryOsv(entry: DependencyEntry): Promise<OsvVulnerability[]> {
       }),
     });
 
-    if (!response.ok) return [];
+    if (!response.ok) return { vulns: [], failed: true };
     const json = await response.json() as { vulns?: OsvVulnerability[] };
-    return json.vulns ?? [];
+    return { vulns: json.vulns ?? [], failed: false };
   } catch {
-    return [];
+    return { vulns: [], failed: true };
   }
 }
 
@@ -455,13 +455,18 @@ async function mapWithConcurrency<T, R>(
   return results;
 }
 
-export async function scanDependencies(rootDir: string): Promise<VulnerabilityResult[]> {
+export async function scanDependencies(rootDir: string): Promise<DependencyScanResult> {
   const dependencyFiles = collectDependencyFiles(rootDir);
   const parsed = dependencyFiles.flatMap(parseDependencyFile);
   const dependencies = dedupeDependencies(parsed).slice(0, 120);
+  let hadLookupFailure = false;
 
   const resultGroups = await mapWithConcurrency(dependencies, 5, async entry => {
-    const vulns = await queryOsv(entry);
+    const { vulns, failed } = await queryOsv(entry);
+    if (failed) {
+      hadLookupFailure = true;
+    }
+
     return vulns.map<VulnerabilityResult>(vuln => {
       const safeVersion = findSafeVersion(vuln);
       const severity = deriveSeverity(vuln);
@@ -482,5 +487,27 @@ export async function scanDependencies(rootDir: string): Promise<VulnerabilityRe
     });
   });
 
-  return resultGroups.flat();
+  const vulnerabilities = resultGroups.flat();
+
+  if (hadLookupFailure && dependencyFiles.length > 0) {
+    vulnerabilities.push({
+      type: 'Dependency Scan Incomplete',
+      category: 'dependency',
+      severity: 'info',
+      confidence: 'detected',
+      exploitability: 'none',
+      file: 'Dependency manifests',
+      description: 'One or more OSV dependency lookups could not be completed, so dependency vulnerability coverage is incomplete for this scan.',
+      suggestion: 'Re-run the scan when network access to OSV is available to complete dependency verification.',
+      code: dependencyFiles.slice(0, 5).map(file => path.relative(rootDir, file)).join(', '),
+    });
+  }
+
+  return {
+    vulnerabilities,
+    completed: !hadLookupFailure,
+    warning: hadLookupFailure
+      ? 'One or more OSV dependency lookups failed, so dependency vulnerability results are incomplete.'
+      : null,
+  };
 }

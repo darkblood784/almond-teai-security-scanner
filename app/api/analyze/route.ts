@@ -4,6 +4,7 @@ import path from 'path';
 import os from 'os';
 import { auth } from '@/auth';
 import prisma from '@/lib/db';
+import { getPlanEntitlements } from '@/lib/entitlements';
 import { scanDirectory } from '@/lib/scanner/index';
 import { scanUrl } from '@/lib/scanner/url-scanner';
 import { downloadGitHubZip } from '@/lib/github';
@@ -19,6 +20,48 @@ import {
 } from '@/lib/projects';
 
 export const maxDuration = 60;
+
+async function loadScanningUser(userId: string) {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      plan: true,
+      monthlyScansUsed: true,
+    },
+  });
+}
+
+async function enforceAndConsumeScanCredit(userId: string) {
+  const user = await loadScanningUser(userId);
+  if (!user) {
+    return { ok: false as const, response: NextResponse.json({ error: 'User not found' }, { status: 404 }) };
+  }
+
+  const entitlements = getPlanEntitlements(user.plan);
+  if (user.monthlyScansUsed >= entitlements.monthlyScanLimit) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { error: `Monthly scan limit reached for the ${user.plan ?? 'free'} plan.` },
+        { status: 403 },
+      ),
+    };
+  }
+
+  await prisma.user.update({
+    where: { id: userId },
+    data: {
+      monthlyScansUsed: {
+        increment: 1,
+      },
+      monthlyScanLimit: entitlements.monthlyScanLimit,
+      monitoringProjectLimit: entitlements.monitoringProjectLimit,
+    },
+  });
+
+  return { ok: true as const };
+}
 
 async function loadPreviousCompletedScan(projectId: string, currentScanId: string) {
   return prisma.scan.findFirst({
@@ -68,6 +111,11 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
       }
 
+      const creditCheck = await enforceAndConsumeScanCredit(userId);
+      if (!creditCheck.ok) {
+        return creditCheck.response;
+      }
+
       const { hostname } = new URL(normalizedUrl);
       const project = await resolveOrCreateProject({
         ownerId: userId,
@@ -109,26 +157,35 @@ export async function POST(req: NextRequest) {
           line: v.line ?? null,
         })),
       });
+      const completedScanData = {
+        status:       'completed',
+        score:        result.score,
+        summary:      result.summary,
+        totalFiles:   result.totalChecks,
+        scannedFiles: result.passedChecks,
+        filesSkipped: result.filesSkipped,
+        filesSkippedBySize: result.filesSkippedBySize,
+        filesSkippedByType: result.filesSkippedByType,
+        linesScanned: result.probedPaths,
+        dependencyAnalysisComplete: result.dependencyAnalysisComplete,
+        dependencyWarning: result.dependencyWarning,
+        coverageNotes: result.coverageNotes.join('\n'),
+        safeVerificationOnly: result.safeVerificationOnly,
+        networkChecksPartial: result.networkChecksPartial,
+        aiSummary:    aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+        previousScanId: regression.previousScanId,
+        previousScore: regression.previousScore,
+        scoreDelta: regression.scoreDelta,
+        regressionStatus: regression.regressionStatus,
+        regressionSummary: regression.regressionSummary,
+        newFindingsCount: regression.newFindingsCount,
+        resolvedFindingsCount: regression.resolvedFindingsCount,
+        unchangedFindingsCount: regression.unchangedFindingsCount,
+      } as any;
 
       await prisma.scan.update({
         where: { id: scan.id },
-        data: {
-          status:       'completed',
-          score:        result.score,
-          summary:      result.summary,
-          totalFiles:   result.totalChecks,
-          scannedFiles: result.passedChecks,
-          linesScanned: result.probedPaths,
-          aiSummary:    aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
-          previousScanId: regression.previousScanId,
-          previousScore: regression.previousScore,
-          scoreDelta: regression.scoreDelta,
-          regressionStatus: regression.regressionStatus,
-          regressionSummary: regression.regressionSummary,
-          newFindingsCount: regression.newFindingsCount,
-          resolvedFindingsCount: regression.resolvedFindingsCount,
-          unchangedFindingsCount: regression.unchangedFindingsCount,
-        },
+        data: completedScanData,
       });
       await prisma.project.update({
         where: { id: project.id },
@@ -154,6 +211,11 @@ export async function POST(req: NextRequest) {
     if (!body.url) return NextResponse.json({ error: 'Missing url field' }, { status: 400 });
     const parsed = parseGitHubUrl(body.url);
     if (!parsed) return NextResponse.json({ error: 'Invalid GitHub repository URL' }, { status: 400 });
+
+    const creditCheck = await enforceAndConsumeScanCredit(userId);
+    if (!creditCheck.ok) {
+      return creditCheck.response;
+    }
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiss-'));
     try {
@@ -205,20 +267,34 @@ export async function POST(req: NextRequest) {
           line: v.line ?? null,
         })),
       });
+      const completedScanData = {
+        status: 'completed',
+        score: result.score,
+        summary: result.summary,
+        totalFiles: result.totalFiles,
+        scannedFiles: result.scannedFiles,
+        filesSkipped: result.filesSkipped,
+        filesSkippedBySize: result.filesSkippedBySize,
+        filesSkippedByType: result.filesSkippedByType,
+        linesScanned: result.linesScanned,
+        dependencyAnalysisComplete: result.dependencyAnalysisComplete,
+        dependencyWarning: result.dependencyWarning,
+        coverageNotes: result.coverageNotes.join('\n'),
+        safeVerificationOnly: result.safeVerificationOnly,
+        networkChecksPartial: result.networkChecksPartial,
+        aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+        previousScanId: regression.previousScanId,
+        previousScore: regression.previousScore,
+        scoreDelta: regression.scoreDelta,
+        regressionStatus: regression.regressionStatus,
+        regressionSummary: regression.regressionSummary,
+        newFindingsCount: regression.newFindingsCount,
+        resolvedFindingsCount: regression.resolvedFindingsCount,
+        unchangedFindingsCount: regression.unchangedFindingsCount,
+      } as any;
       await prisma.scan.update({
         where: { id: scan.id },
-        data: { status: 'completed', score: result.score, summary: result.summary,
-          totalFiles: result.totalFiles, scannedFiles: result.scannedFiles, linesScanned: result.linesScanned,
-          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
-          previousScanId: regression.previousScanId,
-          previousScore: regression.previousScore,
-          scoreDelta: regression.scoreDelta,
-          regressionStatus: regression.regressionStatus,
-          regressionSummary: regression.regressionSummary,
-          newFindingsCount: regression.newFindingsCount,
-          resolvedFindingsCount: regression.resolvedFindingsCount,
-          unchangedFindingsCount: regression.unchangedFindingsCount,
-        },
+        data: completedScanData,
       });
       await prisma.project.update({
         where: { id: project.id },
@@ -248,6 +324,11 @@ export async function POST(req: NextRequest) {
     const file = form.get('file') as File | null;
     if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
     if (!file.name.endsWith('.zip')) return NextResponse.json({ error: 'Only .zip files are supported' }, { status: 400 });
+
+    const creditCheck = await enforceAndConsumeScanCredit(userId);
+    if (!creditCheck.ok) {
+      return creditCheck.response;
+    }
 
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiss-'));
     try {
@@ -287,20 +368,34 @@ export async function POST(req: NextRequest) {
           line: v.line ?? null,
         })),
       });
+      const completedScanData = {
+        status: 'completed',
+        score: result.score,
+        summary: result.summary,
+        totalFiles: result.totalFiles,
+        scannedFiles: result.scannedFiles,
+        filesSkipped: result.filesSkipped,
+        filesSkippedBySize: result.filesSkippedBySize,
+        filesSkippedByType: result.filesSkippedByType,
+        linesScanned: result.linesScanned,
+        dependencyAnalysisComplete: result.dependencyAnalysisComplete,
+        dependencyWarning: result.dependencyWarning,
+        coverageNotes: result.coverageNotes.join('\n'),
+        safeVerificationOnly: result.safeVerificationOnly,
+        networkChecksPartial: result.networkChecksPartial,
+        aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+        previousScanId: regression.previousScanId,
+        previousScore: regression.previousScore,
+        scoreDelta: regression.scoreDelta,
+        regressionStatus: regression.regressionStatus,
+        regressionSummary: regression.regressionSummary,
+        newFindingsCount: regression.newFindingsCount,
+        resolvedFindingsCount: regression.resolvedFindingsCount,
+        unchangedFindingsCount: regression.unchangedFindingsCount,
+      } as any;
       await prisma.scan.update({
         where: { id: scan.id },
-        data: { status: 'completed', score: result.score, summary: result.summary,
-          totalFiles: result.totalFiles, scannedFiles: result.scannedFiles, linesScanned: result.linesScanned,
-          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
-          previousScanId: regression.previousScanId,
-          previousScore: regression.previousScore,
-          scoreDelta: regression.scoreDelta,
-          regressionStatus: regression.regressionStatus,
-          regressionSummary: regression.regressionSummary,
-          newFindingsCount: regression.newFindingsCount,
-          resolvedFindingsCount: regression.resolvedFindingsCount,
-          unchangedFindingsCount: regression.unchangedFindingsCount,
-        },
+        data: completedScanData,
       });
       await prisma.project.update({
         where: { id: project.id },

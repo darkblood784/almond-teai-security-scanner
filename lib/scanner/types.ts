@@ -22,7 +22,21 @@ export interface ScanResult {
   score: number;
   totalFiles: number;
   scannedFiles: number;
+  filesSkipped: number;
+  filesSkippedBySize: number;
+  filesSkippedByType: number;
   linesScanned: number;
+  dependencyAnalysisComplete: boolean;
+  dependencyWarning: string | null;
+  coverageNotes: string[];
+  safeVerificationOnly: boolean;
+  networkChecksPartial: boolean;
   vulnerabilities: VulnerabilityResult[];
   summary: string;
+}
+
+export interface DependencyScanResult {
+  vulnerabilities: VulnerabilityResult[];
+  completed: boolean;
+  warning: string | null;
 }
