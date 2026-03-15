@@ -1,6 +1,6 @@
 'use client';
 
-import { Activity, Calendar, ExternalLink, FileSearch, Globe, Shield, TrendingUp } from 'lucide-react';
+import { Activity, BadgeCheck, Calendar, ExternalLink, FileSearch, Globe, Shield, TrendingUp } from 'lucide-react';
 import SeverityBadge from '@/components/SeverityBadge';
 import { formatDate, scoreRingColor } from '@/lib/utils';
 import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
@@ -68,6 +68,19 @@ function severityRank(severity: string) {
   return { critical: 0, high: 1, medium: 2, low: 3, info: 4 }[severity.toLowerCase()] ?? 5;
 }
 
+function scanTypeLabel(scanType: string) {
+  switch (scanType) {
+    case 'github':
+      return 'Repository scan';
+    case 'website':
+      return 'Website scan';
+    case 'upload':
+      return 'Uploaded code scan';
+    default:
+      return 'Automated scan';
+  }
+}
+
 export default function ProjectVerificationView({ project }: { project: VerificationProject }) {
   const latestScan = project.latestScan;
   const latestScore = latestScan.score ?? 0;
@@ -94,75 +107,119 @@ export default function ProjectVerificationView({ project }: { project: Verifica
     : null;
 
   const criticalCount = latestScan.vulnerabilities.filter(v => v.severity === 'critical').length;
+  const issueCount = latestScan.vulnerabilities.length;
   const publicSourceUrl = project.projectType === 'website' ? project.websiteUrl : project.repoUrl;
   const badgeUrl = project.badgeEligible && project.publicSlug ? `/api/badge/${project.publicSlug}` : null;
+  const latestIssueSummary = criticalCount > 0
+    ? `${criticalCount} critical finding${criticalCount === 1 ? '' : 's'} require attention.`
+    : issueCount > 0
+    ? `${issueCount} non-critical finding${issueCount === 1 ? '' : 's'} were detected in the latest scan.`
+    : 'No vulnerabilities were detected in the latest public scan.';
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-12">
-      <div className="rounded-2xl border border-gray-200 bg-white p-8 card-shadow">
-        <div className="flex flex-col gap-8 lg:flex-row lg:items-start lg:justify-between">
-          <div className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-gray-400">
-              Public Verification
-            </p>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight text-gray-900">{project.name}</h1>
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-gray-500">
-              <span className="inline-flex items-center gap-2 rounded-full border border-gray-200 bg-gray-50 px-3 py-1.5">
-                <Shield className="h-4 w-4 text-gray-400" />
+      <div className="rounded-[28px] border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-100 p-8 card-shadow">
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+          <div className="max-w-3xl">
+            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+              <BadgeCheck className="h-4 w-4 text-emerald-600" />
+              Almond teAI Verification Record
+            </div>
+            <h1 className="mt-4 text-4xl font-bold tracking-tight text-slate-950">{project.name}</h1>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-slate-500">
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
+                <Shield className="h-4 w-4 text-slate-400" />
                 {projectTypeLabel(project.projectType)}
               </span>
-              <span className="inline-flex items-center gap-2">
-                <Calendar className="h-4 w-4 text-gray-400" />
-                Last scan {formatDate(latestScan.createdAt, 'en')}
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
+                <Calendar className="h-4 w-4 text-slate-400" />
+                Last verified {formatDate(latestScan.createdAt, 'en')}
+              </span>
+              <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5">
+                <Activity className="h-4 w-4 text-slate-400" />
+                {scanTypeLabel(latestScan.scanType)}
               </span>
             </div>
-            <p className="mt-5 max-w-xl text-sm leading-relaxed text-gray-600">
-              This public page shows Almond teAI&apos;s latest automated security verification record for this project.
-              It is intended to improve transparency and trust, not to guarantee absolute security.
+            <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-600">
+              This page is Almond teAI&apos;s public trust record for the latest automated verification of this project.
+              It gives customers, partners, and reviewers a clear snapshot of current posture, recent scan history, and surfaced findings.
             </p>
-            {badgeUrl && (
-              <div className="mt-5">
-                <img src={badgeUrl} alt="Almond teAI trust badge" className="h-[74px] w-[332px]" />
+
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Verification status</p>
+                <p className="mt-2 text-xl font-bold" style={{ color: latestColor }}>{latestScoreLabel}</p>
               </div>
-            )}
-            {publicSourceUrl && (
-              <a
-                href={publicSourceUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-5 inline-flex items-center gap-2 text-sm font-medium text-gray-600 transition-colors hover:text-gray-900"
-              >
-                <ExternalLink className="h-4 w-4" />
-                View source
-              </a>
-            )}
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Latest score</p>
+                <p className="mt-2 text-xl font-bold text-slate-900">{latestScore} / 100</p>
+              </div>
+              <div className="rounded-2xl border border-slate-200 bg-white p-5">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Latest finding summary</p>
+                <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-700">{latestIssueSummary}</p>
+              </div>
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              {publicSourceUrl && (
+                <a
+                  href={publicSourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-slate-400 hover:text-slate-900"
+                >
+                  <ExternalLink className="h-4 w-4" />
+                  {project.projectType === 'website' ? 'Visit website' : 'View source'}
+                </a>
+              )}
+              {project.publicSlug && (
+                <span className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm text-slate-500">
+                  Public slug
+                  <span className="font-mono text-slate-700">{project.publicSlug}</span>
+                </span>
+              )}
+            </div>
           </div>
 
-          <div className="w-full max-w-sm rounded-2xl border border-gray-200 bg-gray-50 p-6">
-            <p className="text-sm text-gray-500">Latest security assessment</p>
-            <div className="mt-3 grid grid-cols-3 gap-3 text-sm">
-              <div className="rounded-xl border border-gray-200 bg-white p-4">
-                <p className="text-gray-400">Grade</p>
-                <p className="mt-1 text-2xl font-bold text-gray-900">{latestGrade}</p>
+          <div className="rounded-[24px] border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-xs font-bold uppercase tracking-[0.18em] text-slate-400">Trust badge</p>
+            <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              {badgeUrl ? (
+                <img src={badgeUrl} alt="Almond teAI trust badge" className="h-[74px] w-[332px] max-w-full" />
+              ) : (
+                <div className="rounded-xl border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500">
+                  Public trust badge is not enabled for this project yet.
+                </div>
+              )}
+            </div>
+            <div className="mt-5 grid grid-cols-3 gap-3 text-sm">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-slate-400">Grade</p>
+                <p className="mt-1 text-2xl font-bold text-slate-900">{latestGrade}</p>
               </div>
-              <div className="col-span-2 rounded-xl border border-gray-200 bg-white p-4">
-                <p className="text-gray-400">Score</p>
+              <div className="col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-slate-400">Score</p>
                 <div className="mt-1 flex items-end gap-2">
                   <span className="text-4xl font-bold" style={{ color: latestColor }}>{latestScore}</span>
-                  <span className="pb-1 text-sm text-gray-400">/ 100</span>
+                  <span className="pb-1 text-sm text-slate-400">/ 100</span>
                 </div>
               </div>
             </div>
-            <p className="mt-3 text-sm font-semibold" style={{ color: latestColor }}>Status: {latestScoreLabel}</p>
-            <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-              <div className="rounded-xl border border-gray-200 bg-white p-4">
-                <p className="text-gray-400">Latest scan type</p>
-                <p className="mt-1 font-semibold text-gray-900">{projectTypeLabel(project.projectType)}</p>
+            <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-slate-400">Scan type</p>
+                <p className="mt-1 font-semibold text-slate-900">{scanTypeLabel(latestScan.scanType)}</p>
               </div>
-              <div className="rounded-xl border border-gray-200 bg-white p-4">
-                <p className="text-gray-400">Critical findings</p>
-                <p className="mt-1 font-semibold text-gray-900">{criticalCount}</p>
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <p className="text-slate-400">Critical findings</p>
+                <p className="mt-1 font-semibold text-slate-900">{criticalCount}</p>
               </div>
+            </div>
+            <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-4">
+              <p className="text-sm font-semibold text-emerald-800">Professional trust snapshot</p>
+              <p className="mt-1 text-sm leading-relaxed text-emerald-900/80">
+                Share this page as a living verification record for due diligence, partner review, or investor checks.
+              </p>
             </div>
           </div>
         </div>
@@ -297,7 +354,7 @@ export default function ProjectVerificationView({ project }: { project: Verifica
               </div>
               <div>
                 <p className="text-gray-400">Type</p>
-                <p className="mt-1 font-semibold text-gray-900">{scan.scanType}</p>
+                <p className="mt-1 font-semibold text-gray-900">{scanTypeLabel(scan.scanType)}</p>
               </div>
               <div>
                 <p className="text-gray-400">Issues</p>

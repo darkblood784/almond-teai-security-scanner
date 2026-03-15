@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import { ArrowLeft, Download, Bot, ExternalLink, Calendar, FileCode, Hash, ShieldAlert, Globe, CheckCircle2 } from 'lucide-react';
 import ScoreCard from '@/components/ScoreCard';
@@ -99,17 +100,26 @@ function LocalBadgePreview({ score, createdAt, status }: { score: number; create
 
   return (
     <div className="relative h-[74px] w-[332px] overflow-hidden rounded-[14px] border border-gray-200 bg-white shadow-sm">
-      <div className="absolute left-4 top-[14px] flex items-center gap-0">
-        <div className="flex h-10 w-[182px] items-center rounded-l-[8px] bg-gray-800 px-6 text-[14px] font-bold text-white">
-          Almond teAI
-        </div>
-        <div className={`flex h-10 w-[98px] items-center justify-center rounded-r-[8px] text-[18px] font-bold text-white ${badgeGradeColor(grade)}`}>
-          {score} · {grade}
+      <div className="absolute left-4 top-[14px] h-10 w-[190px] rounded-[11px] bg-slate-900" />
+      <div className={`absolute left-[214px] top-[14px] flex h-10 w-[102px] items-center justify-center rounded-[11px] text-white ${badgeGradeColor(grade)}`}>
+        <div className="text-center">
+          <div className="text-[21px] font-bold leading-none">{score}</div>
+          <div className="mt-1 text-[10.5px] font-bold uppercase leading-none text-orange-50">Grade {grade}</div>
         </div>
       </div>
-      <div className="absolute left-4 top-[58px] text-[11px] text-gray-500">
-        Status {status} - Last scan {date}
+      <div className="absolute left-6 top-[22px] overflow-hidden rounded-md border border-white/10 bg-slate-800 shadow-sm">
+        <Image
+          src="/branding/logo-mark.svg"
+          alt="Almond teAI"
+          width={18}
+          height={18}
+          className="h-[18px] w-[18px]"
+        />
       </div>
+      <div className="absolute left-12 top-[24px] text-[13px] font-bold leading-none text-white">Almond teAI</div>
+      <div className="absolute left-12 top-[37px] text-[10.5px] font-semibold leading-none text-slate-300">Verified posture</div>
+      <div className="absolute left-4 top-[58px] text-[10.5px] font-semibold text-slate-500">Status {status}</div>
+      <div className="absolute right-4 top-[58px] text-[10.5px] font-semibold text-slate-500">Last scan {date}</div>
     </div>
   );
 }
@@ -207,6 +217,15 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
   const deltaValue = scan.scoreDelta ?? 0;
   const deltaText = `${deltaValue > 0 ? '+' : ''}${deltaValue}`;
   const badgeActive = savedVisibility === 'public' && savedBadgeEligible;
+  const badgeGrade = gradeLabel(scan.score ?? 0);
+  const badgeLastVerified = formatDate(scan.createdAt, lang);
+  const badgePublishState = badgeActive
+    ? 'Live and embeddable'
+    : savedVisibility !== 'public'
+    ? 'Waiting for public visibility'
+    : savedBadgeEligible
+    ? 'Pending plan access'
+    : 'Waiting for badge eligibility';
   const coverageNotes = (scan.coverageNotes ?? '')
     .split('\n')
     .map((note: string) => note.trim())
@@ -506,16 +525,57 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
             </div>
           )}
 
-          <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-5">
-            <div className="flex flex-wrap items-center gap-4">
-              {badgeActive ? (
-                <a href={projectUrl} target="_blank" rel="noopener noreferrer">
-                  <img src={badgeUrl} alt="Almond teAI verified badge" className="h-[74px] w-[332px]" />
-                </a>
-              ) : (
-                <LocalBadgePreview score={scan.score ?? 0} createdAt={scan.createdAt} status={badgeStatus} />
-              )}
-              <span className="text-sm text-gray-400">{t.badge_preview_note}</span>
+          <div className="mt-4 rounded-2xl border border-slate-200 bg-gradient-to-br from-slate-50 via-white to-slate-50 p-5">
+            <div className="grid gap-5 lg:grid-cols-[minmax(0,360px)_minmax(0,1fr)] lg:items-center">
+              <div>
+                <div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-400">
+                  <CheckCircle2 className="h-4 w-4" />
+                  {t.badge_preview_note}
+                </div>
+                {badgeActive ? (
+                  <a href={projectUrl} target="_blank" rel="noopener noreferrer">
+                    <img src={badgeUrl} alt="Almond teAI verified badge" className="h-[74px] w-[332px]" />
+                  </a>
+                ) : (
+                  <LocalBadgePreview score={scan.score ?? 0} createdAt={scan.createdAt} status={badgeStatus} />
+                )}
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-3">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Latest score</p>
+                  <p className="mt-2 text-2xl font-bold text-slate-900">
+                    {scan.score ?? '-'}
+                    <span className="ml-2 text-sm font-semibold text-slate-400">Grade {badgeGrade}</span>
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Risk level</p>
+                  <p className="mt-2 text-lg font-bold text-slate-900">{badgeStatus}</p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Last verified</p>
+                  <p className="mt-2 text-lg font-bold text-slate-900">{badgeLastVerified}</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-white px-4 py-3">
+              <span className={`rounded-full px-3 py-1 text-xs font-bold uppercase tracking-wide ${badgeActive ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                {badgePublishState}
+              </span>
+              <span className="flex items-center gap-1.5 text-sm text-slate-500">
+                <Globe className="h-4 w-4" />
+                Public verification page
+              </span>
+              <a
+                href={projectUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sm font-medium text-slate-700 underline decoration-slate-300 underline-offset-4 hover:text-slate-900"
+              >
+                Open verification page
+              </a>
             </div>
             {!badgeActive && (
               <p className="mt-3 text-sm text-gray-500">
@@ -530,14 +590,14 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
             <button
               onClick={() => copyEmbed('markdown')}
               disabled={!badgeActive}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {copiedType === 'markdown' ? t.badge_copied : t.badge_copy_markdown}
             </button>
             <button
               onClick={() => copyEmbed('html')}
               disabled={!badgeActive}
-              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+              className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {copiedType === 'html' ? t.badge_copied : t.badge_copy_html}
             </button>
