@@ -38,6 +38,17 @@ type ScanWithVulns = Scan & ScanCoverageFields & {
   } | null;
 };
 
+interface ScanReportViewProps {
+  scan: ScanWithVulns;
+  allowFixesForFree?: boolean;
+  fixUsage?: {
+    period: string;
+    used: number;
+    limit: number;
+    remaining: number;
+  } | null;
+}
+
 function badgeGradeColor(grade: string): string {
   switch (grade) {
     case 'A':
@@ -94,6 +105,16 @@ function yesNoLabel(value: boolean) {
   return value ? 'Yes' : 'No';
 }
 
+function parseWebsiteCoverageMetadata(notes: string[]) {
+  const profileNote = notes.find(note => note.startsWith('Selected scan profile:'));
+  const validationNote = notes.find(note => note.startsWith('Limited active validation:'));
+
+  return {
+    profile: profileNote ? profileNote.replace('Selected scan profile:', '').trim().replace(/\.$/, '') : null,
+    activeValidation: validationNote ? validationNote.replace('Limited active validation:', '').trim().replace(/\.$/, '') : null,
+  };
+}
+
 function LocalBadgePreview({ score, createdAt, status }: { score: number; createdAt: Date | string; status: string }) {
   const grade = gradeLabel(score);
   const date = new Date(createdAt).toISOString().slice(0, 10);
@@ -117,14 +138,14 @@ function LocalBadgePreview({ score, createdAt, status }: { score: number; create
         />
       </div>
       <div className="absolute left-12 top-[24px] text-[13px] font-bold leading-none text-white">Almond teAI</div>
-      <div className="absolute left-12 top-[37px] text-[10.5px] font-semibold leading-none text-slate-300">Verified posture</div>
+      <div className="absolute left-12 top-[37px] text-[10.5px] font-semibold leading-none text-slate-300">Latest scan posture</div>
       <div className="absolute left-4 top-[58px] text-[10.5px] font-semibold text-slate-500">Status {status}</div>
       <div className="absolute right-4 top-[58px] text-[10.5px] font-semibold text-slate-500">Last scan {date}</div>
     </div>
   );
 }
 
-export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+export default function ScanReportView({ scan, allowFixesForFree = false, fixUsage = null }: ScanReportViewProps) {
   const { lang } = useLanguage();
   const t = strings[lang];
   const [visibility, setVisibility] = useState(scan.project?.visibility ?? 'private');
@@ -204,7 +225,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
     ? `[![Almond teAI verified](${badgeUrl})](${projectUrl})`
     : '';
   const htmlEmbed = badgeUrl && projectUrl
-    ? `<a href="${projectUrl}"><img src="${badgeUrl}" alt="Almond teAI verified badge" /></a>`
+    ? `<a href="${projectUrl}"><img src="${badgeUrl}" alt="Almond teAI latest scan badge" /></a>`
     : '';
   const counts = {
     critical: vulns.filter(v => v.severity === 'critical').length,
@@ -220,7 +241,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
   const badgeGrade = gradeLabel(scan.score ?? 0);
   const badgeLastVerified = formatDate(scan.createdAt, lang);
   const badgePublishState = badgeActive
-    ? 'Live and embeddable'
+    ? 'Live and embeddable (latest scan)'
     : savedVisibility !== 'public'
     ? 'Waiting for public visibility'
     : savedBadgeEligible
@@ -230,10 +251,12 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
     .split('\n')
     .map((note: string) => note.trim())
     .filter(Boolean);
+  const websiteCoverage = parseWebsiteCoverageMetadata(coverageNotes);
   const scoreDrivers = buildScoreDrivers(scan.scanType as 'github' | 'upload' | 'website', vulns);
   const isWebsiteScan = scan.scanType === 'website';
   const entitlements = getPlanEntitlements(scan.project?.owner?.plan);
   const isFreePlan = !entitlements.cleanPdf;
+  const userPlan = scan.project?.owner?.plan ?? 'free';
 
   async function copyEmbed(type: 'markdown' | 'html') {
     const value = type === 'markdown' ? markdownEmbed : htmlEmbed;
@@ -446,6 +469,12 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Checks run</p>
                 <p className="mt-1 text-xl font-bold text-gray-900">{scan.totalFiles}</p>
               </div>
+              {websiteCoverage.profile && (
+                <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Selected profile</p>
+                  <p className="mt-1 text-xl font-bold text-gray-900">{websiteCoverage.profile}</p>
+                </div>
+              )}
               <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Checks passed</p>
                 <p className="mt-1 text-xl font-bold text-gray-900">{scan.scannedFiles}</p>
@@ -458,6 +487,12 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Safe verification only</p>
                 <p className="mt-1 text-xl font-bold text-gray-900">{yesNoLabel(scan.safeVerificationOnly ?? false)}</p>
               </div>
+              {websiteCoverage.activeValidation && (
+                <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Active validation</p>
+                  <p className="mt-1 text-base font-bold text-gray-900">{websiteCoverage.activeValidation}</p>
+                </div>
+              )}
               <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Network checks partial</p>
                 <p className={`mt-1 text-xl font-bold ${scan.networkChecksPartial ?? false ? 'text-amber-700' : 'text-gray-900'}`}>
@@ -534,7 +569,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
                 </div>
                 {badgeActive ? (
                   <a href={projectUrl} target="_blank" rel="noopener noreferrer">
-                    <img src={badgeUrl} alt="Almond teAI verified badge" className="h-[74px] w-[332px]" />
+                    <img src={badgeUrl} alt="Almond teAI latest scan badge" className="h-[74px] w-[332px]" />
                   </a>
                 ) : (
                   <LocalBadgePreview score={scan.score ?? 0} createdAt={scan.createdAt} status={badgeStatus} />
@@ -554,7 +589,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
                   <p className="mt-2 text-lg font-bold text-slate-900">{badgeStatus}</p>
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
-                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Last verified</p>
+                  <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Last scan</p>
                   <p className="mt-2 text-lg font-bold text-slate-900">{badgeLastVerified}</p>
                 </div>
               </div>
@@ -707,7 +742,12 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
             <span className="ml-2 text-base font-normal text-gray-400">{t.report_vuln_found(vulns.length)}</span>
           )}
         </h2>
-        <VulnerabilityTable vulnerabilities={vulns} />
+        <VulnerabilityTable
+          vulnerabilities={vulns}
+          userPlan={userPlan}
+          allowFixesForFree={allowFixesForFree}
+          fixUsage={fixUsage ?? undefined}
+        />
       </div>
 
       <div className="mt-10 rounded-xl border border-gray-100 bg-gray-50 p-5">

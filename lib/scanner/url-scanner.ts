@@ -40,6 +40,8 @@ export interface UrlScanResult {
   networkChecksPartial: boolean;
 }
 
+export type { ScanResponse, RequestOptions };
+
 const REQUIRED_HEADERS: Array<{
   name: string;
   type: string;
@@ -302,7 +304,7 @@ const SENSITIVE_PATHS: Array<{
   },
 ];
 
-function isPrivateOrLocalhost(url: string): boolean {
+export function isPrivateOrLocalhost(url: string): boolean {
   try {
     const { hostname, protocol } = new URL(url);
     if (!['http:', 'https:'].includes(protocol)) return true;
@@ -403,16 +405,22 @@ function nodeRequest(url: string, timeoutMs: number, requestOptions: RequestOpti
   });
 }
 
-function getHeader(headers: Record<string, string | string[]>, name: string): string | null {
+export function getHeader(headers: Record<string, string | string[]>, name: string): string | null {
   const value = headers[name.toLowerCase()];
   if (!value) return null;
   return Array.isArray(value) ? value[0] : value;
 }
 
-async function safeFetch(url: string, timeoutMs = 6000): Promise<ScanResponse | null> {
+export async function safeFetch(url: string, timeoutMs = 6000, requestOptions: RequestOptions = {}): Promise<ScanResponse | null> {
   let current = url;
   for (let i = 0; i < 3; i++) {
-    const response = await nodeRequest(current, timeoutMs, { method: 'GET' });
+    const response = await nodeRequest(current, timeoutMs, {
+      method: requestOptions.method ?? 'GET',
+      includeBody: requestOptions.includeBody,
+      maxBytes: requestOptions.maxBytes,
+      extraHeaders: requestOptions.extraHeaders,
+      body: requestOptions.body,
+    });
     if (!response) return null;
     if (response.status >= 301 && response.status <= 308) {
       const location = getHeader(response.headers, 'location');
@@ -425,12 +433,25 @@ async function safeFetch(url: string, timeoutMs = 6000): Promise<ScanResponse | 
   return null;
 }
 
-async function probeStatus(url: string): Promise<number | null> {
+export async function probeStatus(url: string): Promise<number | null> {
   const response = await nodeRequest(url, 4000, { method: 'HEAD' });
   return response ? response.status : null;
 }
 
-function createWebsiteFinding(input: Omit<UrlVulnerability, 'confidence' | 'exploitability'> & {
+export async function requestUrl(url: string, timeoutMs = 5000, requestOptions: RequestOptions = {}): Promise<ScanResponse | null> {
+  return nodeRequest(url, timeoutMs, requestOptions);
+}
+
+export function normalizePublicUrl(rawUrl: string): string {
+  const url = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
+  const normalized = url.href;
+  if (isPrivateOrLocalhost(normalized)) {
+    throw new Error('Cannot scan private or localhost URLs');
+  }
+  return normalized;
+}
+
+export function createWebsiteFinding(input: Omit<UrlVulnerability, 'confidence' | 'exploitability'> & {
   confidence?: FindingConfidence;
   exploitability?: FindingExploitability;
 }): UrlVulnerability {
@@ -439,6 +460,22 @@ function createWebsiteFinding(input: Omit<UrlVulnerability, 'confidence' | 'expl
     exploitability: input.exploitability ?? 'none',
     ...input,
   };
+}
+
+export function buildWebsiteSummary(
+  target: string,
+  vulnerabilities: Array<{ severity: Severity }>,
+  score: number,
+): string {
+  const criticalCount = vulnerabilities.filter(vulnerability => vulnerability.severity === 'critical').length;
+  const highCount = vulnerabilities.filter(vulnerability => vulnerability.severity === 'high').length;
+  const { hostname } = new URL(target);
+
+  let summary = `Website scan of ${hostname} - ${vulnerabilities.length} issue${vulnerabilities.length !== 1 ? 's' : ''} found`;
+  if (criticalCount > 0) summary += ` (${criticalCount} critical)`;
+  if (highCount > 0) summary += `, ${highCount} high severity`;
+  summary += `. Security score: ${score}/100.`;
+  return summary;
 }
 
 async function fetchVerificationBody(
@@ -568,14 +605,9 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
 
   let target: string;
   try {
-    const url = new URL(rawUrl.startsWith('http') ? rawUrl : `https://${rawUrl}`);
-    target = url.href;
+    target = normalizePublicUrl(rawUrl);
   } catch {
     throw new Error('Invalid URL');
-  }
-
-  if (isPrivateOrLocalhost(target)) {
-    throw new Error('Cannot scan private or localhost URLs');
   }
 
   const mainResponse = await safeFetch(target);
@@ -771,14 +803,7 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
   const verifiedVulnerabilities = await runExploitVerification(base, vulnerabilities);
 
   const score = calculateScore(verifiedVulnerabilities, 'website').score;
-  const criticalCount = verifiedVulnerabilities.filter(vulnerability => vulnerability.severity === 'critical').length;
-  const highCount = verifiedVulnerabilities.filter(vulnerability => vulnerability.severity === 'high').length;
-  const { hostname } = new URL(target);
-
-  let summary = `Website scan of ${hostname} - ${verifiedVulnerabilities.length} issue${verifiedVulnerabilities.length !== 1 ? 's' : ''} found`;
-  if (criticalCount > 0) summary += ` (${criticalCount} critical)`;
-  if (highCount > 0) summary += `, ${highCount} high severity`;
-  summary += `. Security score: ${score}/100.`;
+  const summary = buildWebsiteSummary(target, verifiedVulnerabilities, score);
   const coverageNotes: string[] = [
     `Website verification used safe, read-only requests only. No exploit attempts, fuzzing, or destructive actions were performed.`,
     `Executed ${totalChecks} automated check${totalChecks === 1 ? '' : 's'}, with ${probedPaths} sensitive path probe${probedPaths === 1 ? '' : 's'}.`,

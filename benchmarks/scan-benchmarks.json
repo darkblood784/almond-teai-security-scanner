@@ -8,7 +8,9 @@
       "mode": "github",
       "target": "internal-fixture:repo-committed-env",
       "expected": {
-        "requiredFindingTypes": ["Exposed Secret"],
+        "requiredFindingTypes": [
+          "Exposed Secret"
+        ],
         "requiredFindings": [
           {
             "type": "Exposed Secret",
@@ -17,8 +19,14 @@
             "exploitability": "confirmed"
           }
         ],
-        "scoreRange": { "min": 0, "max": 64 },
-        "acceptableGrades": ["D", "F"]
+        "scoreRange": {
+          "min": 0,
+          "max": 64
+        },
+        "acceptableGrades": [
+          "D",
+          "F"
+        ]
       }
     },
     {
@@ -27,10 +35,21 @@
       "mode": "github",
       "target": "internal-fixture:repo-hardcoded-secret",
       "expected": {
-        "requiredFindingTypes": ["Hardcoded Secret", "Exposed Secret"],
-        "minimumSeverityCounts": { "critical": 1 },
-        "scoreRange": { "min": 0, "max": 70 },
-        "acceptableGrades": ["D", "F"]
+        "requiredFindingTypes": [
+          "Hardcoded Secret",
+          "Exposed Secret"
+        ],
+        "minimumSeverityCounts": {
+          "critical": 1
+        },
+        "scoreRange": {
+          "min": 0,
+          "max": 70
+        },
+        "acceptableGrades": [
+          "D",
+          "F"
+        ]
       }
     },
     {
@@ -39,7 +58,9 @@
       "mode": "github",
       "target": "internal-fixture:repo-vulnerable-dependency",
       "expected": {
-        "requiredFindingTypes": ["Vulnerable Dependency"],
+        "requiredFindingTypes": [
+          "Vulnerable Dependency"
+        ],
         "requiredFindings": [
           {
             "type": "Vulnerable Dependency",
@@ -47,8 +68,125 @@
             "exploitability": "possible"
           }
         ],
-        "scoreRange": { "min": 0, "max": 85 },
-        "acceptableGrades": ["C", "D", "F"]
+        "scoreRange": {
+          "min": 0,
+          "max": 85
+        },
+        "acceptableGrades": [
+          "C",
+          "D",
+          "F"
+        ]
+      }
+    },
+    {
+      "id": "repo-js-unsafe-exec",
+      "title": "JS/TS unsafe command execution",
+      "mode": "github",
+      "target": "internal-fixture:repo-js-unsafe-exec",
+      "expected": {
+        "requiredFindingTypes": [
+          "Unsafe Code Execution"
+        ],
+        "requiredFindings": [
+          {
+            "type": "Unsafe Code Execution",
+            "category": "code",
+            "severity": "high",
+            "confidence": "likely"
+          }
+        ],
+        "scoreRange": {
+          "min": 0,
+          "max": 85
+        },
+        "acceptableGrades": [
+          "C",
+          "D",
+          "F"
+        ]
+      }
+    },
+    {
+      "id": "repo-js-insecure-crypto",
+      "title": "JS/TS insecure crypto usage",
+      "mode": "github",
+      "target": "internal-fixture:repo-js-insecure-crypto",
+      "expected": {
+        "requiredFindingTypes": [
+          "Insecure Cryptographic Usage"
+        ],
+        "requiredFindings": [
+          {
+            "type": "Insecure Cryptographic Usage",
+            "category": "code",
+            "severity": "medium"
+          }
+        ],
+        "scoreRange": {
+          "min": 0,
+          "max": 90
+        },
+        "acceptableGrades": [
+          "B",
+          "C",
+          "D",
+          "F"
+        ]
+      }
+    },
+    {
+      "id": "repo-js-insecure-auth",
+      "title": "JS/TS insecure authentication logic",
+      "mode": "github",
+      "target": "internal-fixture:repo-js-insecure-auth",
+      "expected": {
+        "requiredFindingTypes": [
+          "Insecure Authentication"
+        ],
+        "requiredFindings": [
+          {
+            "type": "Insecure Authentication",
+            "category": "code",
+            "severity": "high"
+          }
+        ],
+        "scoreRange": {
+          "min": 0,
+          "max": 85
+        },
+        "acceptableGrades": [
+          "C",
+          "D",
+          "F"
+        ]
+      }
+    },
+    {
+      "id": "repo-js-dynamic-sql",
+      "title": "JS/TS dynamic SQL construction",
+      "mode": "github",
+      "target": "internal-fixture:repo-js-dynamic-sql",
+      "expected": {
+        "requiredFindingTypes": [
+          "Potential SQL Injection"
+        ],
+        "requiredFindings": [
+          {
+            "type": "Potential SQL Injection",
+            "category": "code",
+            "severity": "high"
+          }
+        ],
+        "scoreRange": {
+          "min": 0,
+          "max": 85
+        },
+        "acceptableGrades": [
+          "C",
+          "D",
+          "F"
+        ]
       }
     },
     {
@@ -57,9 +195,17 @@
       "mode": "github",
       "target": "internal-fixture:repo-docs-fake-secrets",
       "expected": {
-        "forbiddenFindingTypes": ["Hardcoded Secret", "Exposed Secret"],
-        "scoreRange": { "min": 90, "max": 100 },
-        "acceptableGrades": ["A"]
+        "forbiddenFindingTypes": [
+          "Hardcoded Secret",
+          "Exposed Secret"
+        ],
+        "scoreRange": {
+          "min": 90,
+          "max": 100
+        },
+        "acceptableGrades": [
+          "A"
+        ]
       }
     },
     {
@@ -69,8 +215,15 @@
       "target": "internal-fixture:repo-repeated-noise",
       "expected": {
         "maximumFindings": 8,
-        "scoreRange": { "min": 70, "max": 95 },
-        "acceptableGrades": ["B", "C", "A"]
+        "scoreRange": {
+          "min": 70,
+          "max": 95
+        },
+        "acceptableGrades": [
+          "B",
+          "C",
+          "A"
+        ]
       }
     },
     {
@@ -79,9 +232,19 @@
       "mode": "website",
       "target": "internal-fixture:website-header-only-weak",
       "expected": {
-        "requiredFindingTypes": ["Missing HSTS Header", "Missing Content-Security-Policy"],
-        "scoreRange": { "min": 75, "max": 98 },
-        "acceptableGrades": ["A", "B", "C"]
+        "requiredFindingTypes": [
+          "Missing HSTS Header",
+          "Missing Content-Security-Policy"
+        ],
+        "scoreRange": {
+          "min": 75,
+          "max": 98
+        },
+        "acceptableGrades": [
+          "A",
+          "B",
+          "C"
+        ]
       }
     },
     {
@@ -90,7 +253,9 @@
       "mode": "website",
       "target": "internal-fixture:website-exposed-env",
       "expected": {
-        "requiredFindingTypes": ["Exposed .env File"],
+        "requiredFindingTypes": [
+          "Exposed .env File"
+        ],
         "requiredFindings": [
           {
             "type": "Exposed .env File",
@@ -99,8 +264,14 @@
             "exploitability": "confirmed"
           }
         ],
-        "scoreRange": { "min": 0, "max": 64 },
-        "acceptableGrades": ["D", "F"]
+        "scoreRange": {
+          "min": 0,
+          "max": 64
+        },
+        "acceptableGrades": [
+          "D",
+          "F"
+        ]
       }
     },
     {
@@ -109,7 +280,9 @@
       "mode": "website",
       "target": "internal-fixture:website-exposed-git-head",
       "expected": {
-        "requiredFindingTypes": ["Exposed Git Repository"],
+        "requiredFindingTypes": [
+          "Exposed Git Repository"
+        ],
         "requiredFindings": [
           {
             "type": "Exposed Git Repository",
@@ -117,8 +290,15 @@
             "severity": "high"
           }
         ],
-        "scoreRange": { "min": 0, "max": 85 },
-        "acceptableGrades": ["C", "D", "F"]
+        "scoreRange": {
+          "min": 0,
+          "max": 85
+        },
+        "acceptableGrades": [
+          "C",
+          "D",
+          "F"
+        ]
       }
     },
     {
@@ -127,7 +307,9 @@
       "mode": "website",
       "target": "internal-fixture:website-cors-wildcard",
       "expected": {
-        "requiredFindingTypes": ["CORS Wildcard Origin"],
+        "requiredFindingTypes": [
+          "CORS Wildcard Origin"
+        ],
         "requiredFindings": [
           {
             "type": "CORS Wildcard Origin",
@@ -136,8 +318,14 @@
             "exploitability": "possible"
           }
         ],
-        "scoreRange": { "min": 80, "max": 100 },
-        "acceptableGrades": ["A", "B"]
+        "scoreRange": {
+          "min": 80,
+          "max": 100
+        },
+        "acceptableGrades": [
+          "A",
+          "B"
+        ]
       }
     },
     {
@@ -146,7 +334,9 @@
       "mode": "website",
       "target": "internal-fixture:website-cors-wildcard-credentials",
       "expected": {
-        "requiredFindingTypes": ["CORS Wildcard + Credentials"],
+        "requiredFindingTypes": [
+          "CORS Wildcard + Credentials"
+        ],
         "requiredFindings": [
           {
             "type": "CORS Wildcard + Credentials",
@@ -155,8 +345,14 @@
             "exploitability": "confirmed"
           }
         ],
-        "scoreRange": { "min": 0, "max": 64 },
-        "acceptableGrades": ["D", "F"]
+        "scoreRange": {
+          "min": 0,
+          "max": 64
+        },
+        "acceptableGrades": [
+          "D",
+          "F"
+        ]
       }
     },
     {
@@ -165,7 +361,9 @@
       "mode": "website",
       "target": "internal-fixture:website-plain-http",
       "expected": {
-        "requiredFindingTypes": ["No HTTPS / Unencrypted Connection"],
+        "requiredFindingTypes": [
+          "No HTTPS / Unencrypted Connection"
+        ],
         "requiredFindings": [
           {
             "type": "No HTTPS / Unencrypted Connection",
@@ -174,8 +372,14 @@
             "confidence": "verified"
           }
         ],
-        "scoreRange": { "min": 0, "max": 64 },
-        "acceptableGrades": ["D", "F"]
+        "scoreRange": {
+          "min": 0,
+          "max": 64
+        },
+        "acceptableGrades": [
+          "D",
+          "F"
+        ]
       }
     }
   ]

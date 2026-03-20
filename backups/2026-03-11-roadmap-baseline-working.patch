@@ -1,0 +1,2476 @@
+diff --git a/app/api/analyze/route.ts b/app/api/analyze/route.ts
+index 7707f81..a0cba6b 100644
+--- a/app/api/analyze/route.ts
++++ b/app/api/analyze/route.ts
+@@ -4,6 +4,7 @@ import path from 'path';
+ import os from 'os';
+ import { auth } from '@/auth';
+ import prisma from '@/lib/db';
++import { getPlanEntitlements } from '@/lib/entitlements';
+ import { scanDirectory } from '@/lib/scanner/index';
+ import { scanUrl } from '@/lib/scanner/url-scanner';
+ import { downloadGitHubZip } from '@/lib/github';
+@@ -20,6 +21,48 @@ import {
+ 
+ export const maxDuration = 60;
+ 
++async function loadScanningUser(userId: string) {
++  return prisma.user.findUnique({
++    where: { id: userId },
++    select: {
++      id: true,
++      plan: true,
++      monthlyScansUsed: true,
++    },
++  });
++}
++
++async function enforceAndConsumeScanCredit(userId: string) {
++  const user = await loadScanningUser(userId);
++  if (!user) {
++    return { ok: false as const, response: NextResponse.json({ error: 'User not found' }, { status: 404 }) };
++  }
++
++  const entitlements = getPlanEntitlements(user.plan);
++  if (user.monthlyScansUsed >= entitlements.monthlyScanLimit) {
++    return {
++      ok: false as const,
++      response: NextResponse.json(
++        { error: `Monthly scan limit reached for the ${user.plan ?? 'free'} plan.` },
++        { status: 403 },
++      ),
++    };
++  }
++
++  await prisma.user.update({
++    where: { id: userId },
++    data: {
++      monthlyScansUsed: {
++        increment: 1,
++      },
++      monthlyScanLimit: entitlements.monthlyScanLimit,
++      monitoringProjectLimit: entitlements.monitoringProjectLimit,
++    },
++  });
++
++  return { ok: true as const };
++}
++
+ async function loadPreviousCompletedScan(projectId: string, currentScanId: string) {
+   return prisma.scan.findFirst({
+     where: {
+@@ -68,6 +111,11 @@ export async function POST(req: NextRequest) {
+         return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
+       }
+ 
++      const creditCheck = await enforceAndConsumeScanCredit(userId);
++      if (!creditCheck.ok) {
++        return creditCheck.response;
++      }
++
+       const { hostname } = new URL(normalizedUrl);
+       const project = await resolveOrCreateProject({
+         ownerId: userId,
+@@ -109,26 +157,35 @@ export async function POST(req: NextRequest) {
+           line: v.line ?? null,
+         })),
+       });
++      const completedScanData = {
++        status:       'completed',
++        score:        result.score,
++        summary:      result.summary,
++        totalFiles:   result.totalChecks,
++        scannedFiles: result.passedChecks,
++        filesSkipped: result.filesSkipped,
++        filesSkippedBySize: result.filesSkippedBySize,
++        filesSkippedByType: result.filesSkippedByType,
++        linesScanned: result.probedPaths,
++        dependencyAnalysisComplete: result.dependencyAnalysisComplete,
++        dependencyWarning: result.dependencyWarning,
++        coverageNotes: result.coverageNotes.join('\n'),
++        safeVerificationOnly: result.safeVerificationOnly,
++        networkChecksPartial: result.networkChecksPartial,
++        aiSummary:    aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
++        previousScanId: regression.previousScanId,
++        previousScore: regression.previousScore,
++        scoreDelta: regression.scoreDelta,
++        regressionStatus: regression.regressionStatus,
++        regressionSummary: regression.regressionSummary,
++        newFindingsCount: regression.newFindingsCount,
++        resolvedFindingsCount: regression.resolvedFindingsCount,
++        unchangedFindingsCount: regression.unchangedFindingsCount,
++      } as any;
+ 
+       await prisma.scan.update({
+         where: { id: scan.id },
+-        data: {
+-          status:       'completed',
+-          score:        result.score,
+-          summary:      result.summary,
+-          totalFiles:   result.totalChecks,
+-          scannedFiles: result.passedChecks,
+-          linesScanned: result.probedPaths,
+-          aiSummary:    aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+-          previousScanId: regression.previousScanId,
+-          previousScore: regression.previousScore,
+-          scoreDelta: regression.scoreDelta,
+-          regressionStatus: regression.regressionStatus,
+-          regressionSummary: regression.regressionSummary,
+-          newFindingsCount: regression.newFindingsCount,
+-          resolvedFindingsCount: regression.resolvedFindingsCount,
+-          unchangedFindingsCount: regression.unchangedFindingsCount,
+-        },
++        data: completedScanData,
+       });
+       await prisma.project.update({
+         where: { id: project.id },
+@@ -155,6 +212,11 @@ export async function POST(req: NextRequest) {
+     const parsed = parseGitHubUrl(body.url);
+     if (!parsed) return NextResponse.json({ error: 'Invalid GitHub repository URL' }, { status: 400 });
+ 
++    const creditCheck = await enforceAndConsumeScanCredit(userId);
++    if (!creditCheck.ok) {
++      return creditCheck.response;
++    }
++
+     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiss-'));
+     try {
+       const repoUrl  = body.url;
+@@ -205,20 +267,34 @@ export async function POST(req: NextRequest) {
+           line: v.line ?? null,
+         })),
+       });
++      const completedScanData = {
++        status: 'completed',
++        score: result.score,
++        summary: result.summary,
++        totalFiles: result.totalFiles,
++        scannedFiles: result.scannedFiles,
++        filesSkipped: result.filesSkipped,
++        filesSkippedBySize: result.filesSkippedBySize,
++        filesSkippedByType: result.filesSkippedByType,
++        linesScanned: result.linesScanned,
++        dependencyAnalysisComplete: result.dependencyAnalysisComplete,
++        dependencyWarning: result.dependencyWarning,
++        coverageNotes: result.coverageNotes.join('\n'),
++        safeVerificationOnly: result.safeVerificationOnly,
++        networkChecksPartial: result.networkChecksPartial,
++        aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
++        previousScanId: regression.previousScanId,
++        previousScore: regression.previousScore,
++        scoreDelta: regression.scoreDelta,
++        regressionStatus: regression.regressionStatus,
++        regressionSummary: regression.regressionSummary,
++        newFindingsCount: regression.newFindingsCount,
++        resolvedFindingsCount: regression.resolvedFindingsCount,
++        unchangedFindingsCount: regression.unchangedFindingsCount,
++      } as any;
+       await prisma.scan.update({
+         where: { id: scan.id },
+-        data: { status: 'completed', score: result.score, summary: result.summary,
+-          totalFiles: result.totalFiles, scannedFiles: result.scannedFiles, linesScanned: result.linesScanned,
+-          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+-          previousScanId: regression.previousScanId,
+-          previousScore: regression.previousScore,
+-          scoreDelta: regression.scoreDelta,
+-          regressionStatus: regression.regressionStatus,
+-          regressionSummary: regression.regressionSummary,
+-          newFindingsCount: regression.newFindingsCount,
+-          resolvedFindingsCount: regression.resolvedFindingsCount,
+-          unchangedFindingsCount: regression.unchangedFindingsCount,
+-        },
++        data: completedScanData,
+       });
+       await prisma.project.update({
+         where: { id: project.id },
+@@ -249,6 +325,11 @@ export async function POST(req: NextRequest) {
+     if (!file) return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+     if (!file.name.endsWith('.zip')) return NextResponse.json({ error: 'Only .zip files are supported' }, { status: 400 });
+ 
++    const creditCheck = await enforceAndConsumeScanCredit(userId);
++    if (!creditCheck.ok) {
++      return creditCheck.response;
++    }
++
+     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'aiss-'));
+     try {
+       const fileName = file.name;
+@@ -287,20 +368,34 @@ export async function POST(req: NextRequest) {
+           line: v.line ?? null,
+         })),
+       });
++      const completedScanData = {
++        status: 'completed',
++        score: result.score,
++        summary: result.summary,
++        totalFiles: result.totalFiles,
++        scannedFiles: result.scannedFiles,
++        filesSkipped: result.filesSkipped,
++        filesSkippedBySize: result.filesSkippedBySize,
++        filesSkippedByType: result.filesSkippedByType,
++        linesScanned: result.linesScanned,
++        dependencyAnalysisComplete: result.dependencyAnalysisComplete,
++        dependencyWarning: result.dependencyWarning,
++        coverageNotes: result.coverageNotes.join('\n'),
++        safeVerificationOnly: result.safeVerificationOnly,
++        networkChecksPartial: result.networkChecksPartial,
++        aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
++        previousScanId: regression.previousScanId,
++        previousScore: regression.previousScore,
++        scoreDelta: regression.scoreDelta,
++        regressionStatus: regression.regressionStatus,
++        regressionSummary: regression.regressionSummary,
++        newFindingsCount: regression.newFindingsCount,
++        resolvedFindingsCount: regression.resolvedFindingsCount,
++        unchangedFindingsCount: regression.unchangedFindingsCount,
++      } as any;
+       await prisma.scan.update({
+         where: { id: scan.id },
+-        data: { status: 'completed', score: result.score, summary: result.summary,
+-          totalFiles: result.totalFiles, scannedFiles: result.scannedFiles, linesScanned: result.linesScanned,
+-          aiSummary: aiResult ? `${aiResult.summary}\n\nRemediation: ${aiResult.remediationPlan}` : null,
+-          previousScanId: regression.previousScanId,
+-          previousScore: regression.previousScore,
+-          scoreDelta: regression.scoreDelta,
+-          regressionStatus: regression.regressionStatus,
+-          regressionSummary: regression.regressionSummary,
+-          newFindingsCount: regression.newFindingsCount,
+-          resolvedFindingsCount: regression.resolvedFindingsCount,
+-          unchangedFindingsCount: regression.unchangedFindingsCount,
+-        },
++        data: completedScanData,
+       });
+       await prisma.project.update({
+         where: { id: project.id },
+diff --git a/app/api/badge/[slug]/route.ts b/app/api/badge/[slug]/route.ts
+index 6405b46..22e87d5 100644
+--- a/app/api/badge/[slug]/route.ts
++++ b/app/api/badge/[slug]/route.ts
+@@ -1,6 +1,7 @@
+ import { NextRequest, NextResponse } from 'next/server';
+ import prisma from '@/lib/db';
+ import { renderTrustBadge } from '@/lib/badge';
++import { getPlanEntitlements } from '@/lib/entitlements';
+ 
+ export async function GET(
+   _req: NextRequest,
+@@ -8,10 +9,26 @@ export async function GET(
+ ) {
+   const project = await prisma.project.findUnique({
+     where: { publicSlug: params.slug },
+-    include: { latestScan: true },
++    include: {
++      latestScan: true,
++      owner: {
++        select: {
++          plan: true,
++        },
++      },
++    },
+   });
+ 
+-  if (!project || project.visibility !== 'public' || !project.latestScan || project.latestScan.score == null) {
++  const entitlements = getPlanEntitlements(project?.owner?.plan);
++
++  if (
++    !project ||
++    project.visibility !== 'public' ||
++    !project.badgeEligible ||
++    !entitlements.trustBadge ||
++    !project.latestScan ||
++    project.latestScan.score == null
++  ) {
+     return new NextResponse('Not Found', { status: 404 });
+   }
+ 
+diff --git a/app/api/projects/[id]/settings/route.ts b/app/api/projects/[id]/settings/route.ts
+index 1095d35..1636180 100644
+--- a/app/api/projects/[id]/settings/route.ts
++++ b/app/api/projects/[id]/settings/route.ts
+@@ -1,40 +1,77 @@
+ import { NextRequest, NextResponse } from 'next/server';
++import { auth } from '@/auth';
+ import prisma from '@/lib/db';
+-
+-const INTERNAL_ADMIN_TOKEN = process.env.INTERNAL_ADMIN_TOKEN;
++import { getPlanEntitlements } from '@/lib/entitlements';
+ 
+ export async function POST(
+   req: NextRequest,
+   { params }: { params: { id: string } },
+ ) {
+-  if (!INTERNAL_ADMIN_TOKEN) {
+-    return NextResponse.json({ error: 'INTERNAL_ADMIN_TOKEN is not configured.' }, { status: 500 });
++  const session = await auth();
++  const userId = session?.user?.id;
++
++  if (!userId) {
++    return NextResponse.json({ error: 'Authentication required.' }, { status: 401 });
+   }
+ 
+   const body = await req.json() as {
+-    token?: string;
+     visibility?: string;
+     badgeEligible?: boolean;
+     monitoringEnabled?: boolean;
+   };
+ 
+-  if (body.token !== INTERNAL_ADMIN_TOKEN) {
+-    return NextResponse.json({ error: 'Invalid internal admin token.' }, { status: 403 });
+-  }
+-
+   if (body.visibility !== 'private' && body.visibility !== 'public') {
+     return NextResponse.json({ error: 'Invalid visibility value.' }, { status: 400 });
+   }
+ 
+-  const project = await prisma.project.findUnique({
+-    where: { id: params.id },
+-    select: { id: true },
++  const project = await prisma.project.findFirst({
++    where: {
++      id: params.id,
++      ownerId: userId,
++    },
++    select: {
++      id: true,
++      monitoringEnabled: true,
++      owner: {
++        select: {
++          plan: true,
++        },
++      },
++    },
+   });
+ 
+   if (!project) {
+     return NextResponse.json({ error: 'Project not found.' }, { status: 404 });
+   }
+ 
++  const entitlements = getPlanEntitlements(project.owner.plan);
++
++  if (body.visibility === 'public' && !entitlements.publicVerification) {
++    return NextResponse.json({ error: 'Your plan does not allow public verification pages.' }, { status: 403 });
++  }
++
++  if (body.badgeEligible && !entitlements.trustBadge) {
++    return NextResponse.json({ error: 'Your plan does not allow trust badges.' }, { status: 403 });
++  }
++
++  if (body.monitoringEnabled && !entitlements.continuousMonitoring) {
++    return NextResponse.json({ error: 'Your plan does not allow continuous monitoring.' }, { status: 403 });
++  }
++
++  if (body.monitoringEnabled && !project.monitoringEnabled) {
++    const enabledMonitoringCount = await prisma.project.count({
++      where: {
++        ownerId: userId,
++        monitoringEnabled: true,
++        id: { not: params.id },
++      },
++    });
++
++    if (enabledMonitoringCount >= entitlements.monitoringProjectLimit) {
++      return NextResponse.json({ error: 'Monitoring project limit reached for your plan.' }, { status: 403 });
++    }
++  }
++
+   const updated = await prisma.project.update({
+     where: { id: params.id },
+     data: {
+diff --git a/app/api/report/[id]/route.ts b/app/api/report/[id]/route.ts
+index fefdec1..6335c5d 100644
+--- a/app/api/report/[id]/route.ts
++++ b/app/api/report/[id]/route.ts
+@@ -1,19 +1,38 @@
+ import { NextRequest, NextResponse } from 'next/server';
++import { auth } from '@/auth';
+ import prisma from '@/lib/db';
++import { getPlanEntitlements } from '@/lib/entitlements';
+ import { generatePdfBuffer } from '@/lib/pdf';
+ 
+ export async function GET(
+   _req: NextRequest,
+   { params }: { params: { id: string } },
+ ) {
+-  const scan = await prisma.scan.findUnique({
+-    where:   { id: params.id },
++  const session = await auth();
++  const userId = session?.user?.id;
++
++  if (!userId) {
++    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
++  }
++
++  const scan = await prisma.scan.findFirst({
++    where: {
++      id: params.id,
++      project: {
++        ownerId: userId,
++      },
++    },
+     include: {
+       vulnerabilities: true,
+       project: {
+         select: {
+           publicSlug: true,
+           visibility: true,
++          owner: {
++            select: {
++              plan: true,
++            },
++          },
+         },
+       },
+     },
+@@ -27,7 +46,10 @@ export async function GET(
+   }
+ 
+   try {
+-    const pdf = await generatePdfBuffer(scan);
++    const entitlements = getPlanEntitlements(scan.project?.owner?.plan);
++    const pdf = await generatePdfBuffer(scan, {
++      watermarked: !entitlements.cleanPdf,
++    });
+     const name = (scan.repoName ?? scan.fileName ?? 'scan').replace(/[^a-zA-Z0-9_\-]/g, '_');
+ 
+     return new NextResponse(pdf as unknown as BodyInit, {
+diff --git a/app/api/scans/[id]/route.ts b/app/api/scans/[id]/route.ts
+index d41a3cf..869d49f 100644
+--- a/app/api/scans/[id]/route.ts
++++ b/app/api/scans/[id]/route.ts
+@@ -1,12 +1,25 @@
+ import { NextRequest, NextResponse } from 'next/server';
++import { auth } from '@/auth';
+ import prisma from '@/lib/db';
+ 
+ export async function GET(
+   _req: NextRequest,
+   { params }: { params: { id: string } },
+ ) {
+-  const scan = await prisma.scan.findUnique({
+-    where:   { id: params.id },
++  const session = await auth();
++  const userId = session?.user?.id;
++
++  if (!userId) {
++    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
++  }
++
++  const scan = await prisma.scan.findFirst({
++    where: {
++      id: params.id,
++      project: {
++        ownerId: userId,
++      },
++    },
+     include: { vulnerabilities: { orderBy: [{ severity: 'asc' }, { file: 'asc' }] } },
+   });
+ 
+diff --git a/app/api/scans/route.ts b/app/api/scans/route.ts
+index d6d7b85..9488c89 100644
+--- a/app/api/scans/route.ts
++++ b/app/api/scans/route.ts
+@@ -1,8 +1,21 @@
+ import { NextResponse } from 'next/server';
++import { auth } from '@/auth';
+ import prisma from '@/lib/db';
+ 
+ export async function GET() {
++  const session = await auth();
++  const userId = session?.user?.id;
++
++  if (!userId) {
++    return NextResponse.json({ error: 'Authentication required' }, { status: 401 });
++  }
++
+   const scans = await prisma.scan.findMany({
++    where: {
++      project: {
++        ownerId: userId,
++      },
++    },
+     orderBy: { createdAt: 'desc' },
+     take: 50,
+     include: { _count: { select: { vulnerabilities: true } } },
+diff --git a/app/dashboard/page.tsx b/app/dashboard/page.tsx
+index 9ba200b..ff26879 100644
+--- a/app/dashboard/page.tsx
++++ b/app/dashboard/page.tsx
+@@ -1,28 +1,101 @@
++import { redirect } from 'next/navigation';
++import { auth } from '@/auth';
+ import prisma from '@/lib/db';
+ import DashboardView from '@/components/DashboardView';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+-async function getStats() {
+-  const [scans, vulnCounts] = await Promise.all([
++async function getDashboardData(userId: string) {
++  const [projects, recentScans] = await Promise.all([
++    prisma.project.findMany({
++      where: { ownerId: userId },
++      select: {
++        id: true,
++        name: true,
++        projectType: true,
++        visibility: true,
++        badgeEligible: true,
++        monitoringEnabled: true,
++        publicSlug: true,
++        latestScan: {
++          select: {
++            id: true,
++            createdAt: true,
++            status: true,
++            score: true,
++            regressionStatus: true,
++            repoName: true,
++            fileName: true,
++            websiteUrl: true,
++            _count: {
++              select: {
++                vulnerabilities: true,
++              },
++            },
++            vulnerabilities: {
++              select: {
++                severity: true,
++              },
++            },
++          },
++        },
++      },
++    }),
+     prisma.scan.findMany({
+-      orderBy: { createdAt: 'desc' }, take: 20,
++      where: {
++        project: {
++          ownerId: userId,
++        },
++      },
++      orderBy: { createdAt: 'desc' },
++      take: 8,
+       include: { _count: { select: { vulnerabilities: true } } },
+     }),
+-    prisma.vulnerability.groupBy({ by: ['severity'], _count: { severity: true } }),
+   ]);
+-  return { scans, vulnCounts };
++
++  const sortedProjects = [...projects].sort((a, b) => {
++    const aTime = a.latestScan ? new Date(a.latestScan.createdAt).getTime() : 0;
++    const bTime = b.latestScan ? new Date(b.latestScan.createdAt).getTime() : 0;
++    return bTime - aTime;
++  });
++
++  const latestCompletedScans = sortedProjects
++    .map(project => project.latestScan)
++    .filter(scan => Boolean(scan && scan.status === 'completed' && scan.score != null));
++
++  const avgLatestScore = latestCompletedScans.length
++    ? Math.round(latestCompletedScans.reduce((sum, scan) => sum + (scan?.score ?? 0), 0) / latestCompletedScans.length)
++    : null;
++
++  const projectsWithCriticalFindings = sortedProjects.filter(project =>
++    project.latestScan?.vulnerabilities.some(vulnerability => vulnerability.severity === 'critical'),
++  ).length;
++
++  const improvedProjects = sortedProjects.filter(project => project.latestScan?.regressionStatus === 'improved').length;
++  const degradedProjects = sortedProjects.filter(project => project.latestScan?.regressionStatus === 'degraded').length;
++
++  return {
++    projects: sortedProjects,
++    recentScans,
++    stats: {
++      totalProjects: sortedProjects.length,
++      avgLatestScore,
++      projectsWithCriticalFindings,
++      improvedProjects,
++      degradedProjects,
++    },
++  };
+ }
+ 
+ export default async function DashboardPage() {
+-  const { scans, vulnCounts } = await getStats();
+-  const completed = scans.filter(s => s.status === 'completed');
++  const session = await auth();
++  const userId = session?.user?.id;
+ 
+-  const avgScore = completed.length
+-    ? Math.round(completed.reduce((a, s) => a + (s.score ?? 0), 0) / completed.length)
+-    : null;
++  if (!userId) {
++    redirect('/');
++  }
+ 
+-  const critCount = vulnCounts.find(v => v.severity === 'critical')?._count.severity ?? 0;
++  const { projects, recentScans, stats } = await getDashboardData(userId);
+ 
+-  return <DashboardView scans={scans} avgScore={avgScore} critCount={critCount} />;
++  return <DashboardView projects={projects} recentScans={recentScans} stats={stats} />;
+ }
+diff --git a/app/scan/[id]/page.tsx b/app/scan/[id]/page.tsx
+index c3232fe..9dce16b 100644
+--- a/app/scan/[id]/page.tsx
++++ b/app/scan/[id]/page.tsx
+@@ -1,12 +1,18 @@
+ import { notFound } from 'next/navigation';
++import { auth } from '@/auth';
+ import prisma from '@/lib/db';
+ import ScanReportView from '@/components/ScanReportView';
+ 
+ export const dynamic = 'force-dynamic';
+ 
+-async function getScan(id: string) {
+-  return prisma.scan.findUnique({
+-    where:   { id },
++async function getOwnedScan(id: string, ownerId: string) {
++  return prisma.scan.findFirst({
++    where: {
++      id,
++      project: {
++        ownerId,
++      },
++    },
+     include: {
+       vulnerabilities: { orderBy: { severity: 'asc' } },
+       project: {
+@@ -16,6 +22,11 @@ async function getScan(id: string) {
+           badgeEligible: true,
+           monitoringEnabled: true,
+           publicSlug: true,
++          owner: {
++            select: {
++              plan: true,
++            },
++          },
+         },
+       },
+     },
+@@ -23,7 +34,12 @@ async function getScan(id: string) {
+ }
+ 
+ export default async function ScanPage({ params }: { params: { id: string } }) {
+-  const scan = await getScan(params.id);
++  const session = await auth();
++  const userId = session?.user?.id;
++
++  if (!userId) notFound();
++
++  const scan = await getOwnedScan(params.id, userId);
+   if (!scan) notFound();
+   return <ScanReportView scan={scan} />;
+ }
+diff --git a/components/DashboardView.tsx b/components/DashboardView.tsx
+index 9d5b861..e8b32ca 100644
+--- a/components/DashboardView.tsx
++++ b/components/DashboardView.tsx
+@@ -1,12 +1,36 @@
+ 'use client';
+ import Link from 'next/link';
+-import { Plus, Shield, AlertTriangle, FileSearch } from 'lucide-react';
++import { Activity, ArrowRight, ArrowUpRight, FolderKanban, Globe, Github, Plus, Shield, TrendingDown, TrendingUp, TriangleAlert, Upload } from 'lucide-react';
+ import StatsCard from '@/components/StatsCard';
+ import ScanListItem from '@/components/ScanListItem';
+ import { useLanguage } from '@/contexts/LanguageContext';
+ import { strings } from '@/lib/i18n';
++import { formatDate, scoreRingColor } from '@/lib/utils';
++import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
+ 
+-interface Scan {
++interface ProjectEntry {
++  id: string;
++  name: string;
++  projectType: string;
++  visibility: string;
++  badgeEligible: boolean;
++  monitoringEnabled: boolean;
++  publicSlug: string | null;
++  latestScan: {
++    id: string;
++    createdAt: Date | string;
++    status: string;
++    score: number | null;
++    regressionStatus: string | null;
++    repoName: string | null;
++    fileName: string | null;
++    websiteUrl: string | null;
++    _count: { vulnerabilities: number };
++    vulnerabilities: Array<{ severity: string }>;
++  } | null;
++}
++
++interface RecentScan {
+   id: string;
+   status: string;
+   score: number | null;
+@@ -16,25 +40,89 @@ interface Scan {
+   _count: { vulnerabilities: number };
+ }
+ 
++interface DashboardStats {
++  totalProjects: number;
++  avgLatestScore: number | null;
++  projectsWithCriticalFindings: number;
++  improvedProjects: number;
++  degradedProjects: number;
++}
++
+ interface Props {
+-  scans:     Scan[];
+-  avgScore:  number | null;
+-  critCount: number;
++  projects: ProjectEntry[];
++  recentScans: RecentScan[];
++  stats: DashboardStats;
++}
++
++function getScoreLabel(score: number, t: typeof strings['en']) {
++  const key = scoreStatusKey(score);
++  switch (key) {
++    case 'excellent': return t.score_excellent;
++    case 'good': return t.score_good;
++    case 'fair': return t.score_fair;
++    case 'poor': return t.score_poor;
++    default: return t.score_critical;
++  }
++}
++
++function projectTypeLabel(projectType: string): string {
++  switch (projectType) {
++    case 'github':
++      return 'GitHub';
++    case 'website':
++      return 'Website';
++    case 'upload':
++      return 'Upload';
++    default:
++      return 'Project';
++  }
+ }
+ 
+-export default function DashboardView({ scans, avgScore, critCount }: Props) {
++function projectTypeIcon(projectType: string) {
++  switch (projectType) {
++    case 'github':
++      return Github;
++    case 'website':
++      return Globe;
++    case 'upload':
++      return Upload;
++    default:
++      return FolderKanban;
++  }
++}
++
++function regressionStyle(status: string | null): string {
++  switch (status) {
++    case 'improved':
++      return 'border-green-200 bg-green-50 text-green-700';
++    case 'degraded':
++      return 'border-amber-200 bg-amber-50 text-amber-700';
++    default:
++      return 'border-slate-200 bg-slate-50 text-slate-700';
++  }
++}
++
++function regressionLabel(status: string | null): string {
++  switch (status) {
++    case 'improved':
++      return 'Improved';
++    case 'degraded':
++      return 'Degraded';
++    default:
++      return 'Stable';
++  }
++}
++
++export default function DashboardView({ projects, recentScans, stats }: Props) {
+   const { lang } = useLanguage();
+   const t = strings[lang];
+-  const completed = scans.filter(s => s.status === 'completed');
+ 
+   return (
+     <div className="mx-auto max-w-7xl px-6 py-12">
+-
+-      {/* Header */}
+       <div className="mb-10 flex items-center justify-between">
+         <div>
+           <h1 className="text-3xl font-bold text-gray-900">{t.dash_title}</h1>
+-          <p className="mt-1 text-sm text-gray-400">{t.dash_sub}</p>
++          <p className="mt-1 text-sm text-gray-400">Projects and their latest security trust state.</p>
+         </div>
+         <Link href="/new"
+           className="flex items-center gap-2 rounded-lg bg-gray-900 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-gray-700"
+@@ -44,25 +132,27 @@ export default function DashboardView({ scans, avgScore, critCount }: Props) {
+         </Link>
+       </div>
+ 
+-      {/* Stats */}
+-      <div className="mb-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+-        <StatsCard title={t.dash_stat1}    value={scans.length}      icon={FileSearch} color="default" />
+-        <StatsCard title={t.dash_stat2}    value={avgScore ?? '?'}   icon={Shield}     color="blue"    subtitle={t.dash_stat2sub} />
+-        <StatsCard title={t.dash_stat3}    value={critCount}         icon={AlertTriangle} color="red"  subtitle={t.dash_stat3sub} />
+-        <StatsCard title={t.dash_stat4}    value={completed.length}  icon={FileSearch} color="default" />
++      <div className="mb-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
++        <StatsCard title="Total Projects" value={stats.totalProjects} icon={FolderKanban} color="default" />
++        <StatsCard title="Average Latest Score" value={stats.avgLatestScore ?? '?'} icon={Shield} color="blue" subtitle="Across latest completed scans" />
++        <StatsCard title="Critical Projects" value={stats.projectsWithCriticalFindings} icon={TriangleAlert} color="red" subtitle="Latest scan contains critical findings" />
++        <StatsCard title="Improved Recently" value={stats.improvedProjects} icon={TrendingUp} color="blue" subtitle="Latest scan shows improvement" />
++        <StatsCard title="Degraded Recently" value={stats.degradedProjects} icon={TrendingDown} color="orange" subtitle="Latest scan shows regression" />
+       </div>
+ 
+-      {/* Scan list */}
+-      <div className="rounded-xl border border-gray-200 overflow-hidden card-shadow">
++        <div className="overflow-hidden rounded-xl border border-gray-200 bg-white card-shadow">
+         <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-6 py-4">
+-          <h2 className="font-semibold text-gray-900">{t.dash_list_title}</h2>
+-          <span className="text-sm text-gray-400">{t.dash_list_count(scans.length)}</span>
++          <div>
++            <h2 className="font-semibold text-gray-900">Projects</h2>
++            <p className="mt-1 text-sm text-gray-400">Latest trust and security state per owned project.</p>
++          </div>
++          <span className="text-sm text-gray-400">{projects.length} project{projects.length === 1 ? '' : 's'}</span>
+         </div>
+ 
+-        {scans.length === 0 ? (
++        {projects.length === 0 ? (
+           <div className="flex flex-col items-center gap-4 bg-white py-20">
+             <div className="flex h-12 w-12 items-center justify-center rounded-full border border-gray-200 bg-gray-50">
+-              <FileSearch className="h-5 w-5 text-gray-300" />
++              <FolderKanban className="h-5 w-5 text-gray-300" />
+             </div>
+             <p className="text-gray-400">{t.dash_empty}</p>
+             <Link href="/new"
+@@ -70,14 +160,185 @@ export default function DashboardView({ scans, avgScore, critCount }: Props) {
+               {t.dash_empty_cta}
+             </Link>
+           </div>
++        ) : (
++          <div className="divide-y divide-gray-100 bg-[linear-gradient(180deg,#ffffff_0%,#fcfcfd_100%)]">
++            {projects.map(project => {
++              const latestScan = project.latestScan;
++              const score = latestScan?.score ?? null;
++              const grade = score != null ? gradeLabel(score) : null;
++              const scoreLabel = score != null ? getScoreLabel(score, t) : 'Pending';
++              const color = score != null ? scoreRingColor(score) : '#94A3B8';
++              const criticalCount = latestScan?.vulnerabilities.filter(vulnerability => vulnerability.severity === 'critical').length ?? 0;
++              const issueCount = latestScan?._count.vulnerabilities ?? 0;
++              const ProjectTypeIcon = projectTypeIcon(project.projectType);
++              const statusTone =
++                score == null
++                  ? 'border-slate-200 bg-slate-50 text-slate-600'
++                  : score >= 90
++                  ? 'border-green-200 bg-green-50 text-green-700'
++                  : score >= 70
++                  ? 'border-blue-200 bg-blue-50 text-blue-700'
++                  : score >= 50
++                  ? 'border-amber-200 bg-amber-50 text-amber-700'
++                  : 'border-red-200 bg-red-50 text-red-700';
++
++              return (
++                <div key={project.id} className="px-6 py-6">
++                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_420px] xl:items-center">
++                    <div className="min-w-0">
++                      <div className="flex flex-wrap items-start gap-4">
++                        <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-2xl border border-gray-200 bg-gray-50 text-gray-600">
++                          <ProjectTypeIcon className="h-5 w-5" />
++                        </div>
++                        <div className="min-w-0 flex-1">
++                          <div className="flex flex-wrap items-center gap-3">
++                            {latestScan ? (
++                              <Link
++                                href={`/scan/${latestScan.id}`}
++                                className="truncate text-xl font-semibold tracking-tight text-gray-900 transition-colors hover:text-gray-700"
++                              >
++                                {project.name}
++                              </Link>
++                            ) : (
++                              <p className="truncate text-xl font-semibold tracking-tight text-gray-900">{project.name}</p>
++                            )}
++                            <span className="rounded-full border border-gray-200 bg-gray-50 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-600">
++                              {projectTypeLabel(project.projectType)}
++                            </span>
++                            <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] ${regressionStyle(latestScan?.regressionStatus ?? null)}`}>
++                              {regressionLabel(latestScan?.regressionStatus ?? null)}
++                            </span>
++                            <span className="rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-medium text-gray-500">
++                              {project.visibility === 'public' ? 'Public' : 'Private'}
++                            </span>
++                            {project.monitoringEnabled && (
++                              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
++                                Monitoring
++                              </span>
++                            )}
++                          </div>
++                          <p className="mt-3 max-w-2xl text-sm text-gray-500">
++                            {latestScan
++                              ? 'Latest project security state based on the most recent completed or in-progress scan.'
++                              : 'No scans yet. Start a scan to establish a trust record for this project.'}
++                          </p>
++                        </div>
++                      </div>
++
++                      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
++                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
++                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Latest Status</p>
++                          <p className="mt-2 text-sm font-semibold text-gray-900">{latestScan?.status ?? 'No scans yet'}</p>
++                        </div>
++                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
++                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Last Scan</p>
++                          <p className="mt-2 text-sm font-semibold text-gray-900">{latestScan ? formatDate(latestScan.createdAt, lang) : '?'}</p>
++                        </div>
++                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
++                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Issues</p>
++                          <p className="mt-2 text-sm font-semibold text-gray-900">{issueCount}</p>
++                        </div>
++                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
++                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Critical</p>
++                          <p className={`mt-2 text-sm font-semibold ${criticalCount > 0 ? 'text-red-600' : 'text-gray-900'}`}>{criticalCount}</p>
++                        </div>
++                      </div>
++                    </div>
++
++                    <div className="rounded-2xl border border-gray-200 bg-gradient-to-br from-gray-50 to-white p-4">
++                      <div className="grid gap-3 sm:grid-cols-[96px_96px_minmax(0,1fr)]">
++                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
++                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Score</p>
++                          <p className="mt-2 text-4xl font-bold leading-none" style={{ color }}>{score ?? '?'}</p>
++                        </div>
++                        <div className="rounded-xl border border-gray-200 bg-white px-4 py-3">
++                          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Grade</p>
++                          <p className="mt-2 text-4xl font-bold leading-none text-gray-900">{grade ?? '?'}</p>
++                        </div>
++                        <div className="flex flex-col justify-between rounded-xl border border-gray-200 bg-white px-4 py-3">
++                          <div>
++                            <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-gray-400">Trust State</p>
++                            <div className={`mt-2 inline-flex rounded-full border px-3 py-1 text-sm font-semibold ${statusTone}`}>
++                              {scoreLabel}
++                            </div>
++                          </div>
++                          <div className="mt-4 flex items-center gap-2 text-xs text-gray-400">
++                            <Activity className="h-3.5 w-3.5" />
++                            Regression: <span className="font-semibold text-gray-600">{regressionLabel(latestScan?.regressionStatus ?? null)}</span>
++                          </div>
++                        </div>
++                      </div>
++                      <div className="mt-4 flex flex-wrap items-center gap-3">
++                        {latestScan ? (
++                          <Link
++                            href={`/scan/${latestScan.id}`}
++                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
++                          >
++                            View Latest Scan
++                            <ArrowUpRight className="h-4 w-4" />
++                          </Link>
++                        ) : (
++                          <Link
++                            href="/new"
++                            className="inline-flex items-center justify-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
++                          >
++                            Start First Scan
++                            <ArrowUpRight className="h-4 w-4" />
++                          </Link>
++                        )}
++                        {project.publicSlug && project.visibility === 'public' && (
++                          <Link
++                            href={`/projects/${project.publicSlug}`}
++                            className="inline-flex items-center justify-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
++                          >
++                            View Public Page
++                            <ArrowUpRight className="h-4 w-4" />
++                          </Link>
++                        )}
++                        {project.badgeEligible && project.publicSlug && project.visibility === 'public' && (
++                          <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-emerald-700">
++                            Badge Active
++                          </span>
++                        )}
++                      </div>
++                    </div>
++                  </div>
++                </div>
++              );
++            })}
++          </div>
++        )}
++      </div>
++
++      <div className="mt-10 overflow-hidden rounded-xl border border-gray-200 bg-white card-shadow">
++        <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-6 py-4">
++          <div>
++            <h2 className="font-semibold text-gray-900">Recent Scans</h2>
++            <p className="mt-1 text-sm text-gray-400">Secondary detail for recent activity across your projects.</p>
++          </div>
++          <span className="text-sm text-gray-400">{recentScans.length} recent scan{recentScans.length === 1 ? '' : 's'}</span>
++        </div>
++
++        {recentScans.length === 0 ? (
++          <div className="px-6 py-10 text-sm text-gray-400">No recent scans yet.</div>
+         ) : (
+           <div className="bg-white">
+-            {scans.map((scan, i) => (
+-              <ScanListItem key={scan.id} scan={scan} isLast={i === scans.length - 1} />
++            {recentScans.map((scan, index) => (
++              <ScanListItem key={scan.id} scan={scan} isLast={index === recentScans.length - 1} />
+             ))}
+           </div>
+         )}
+       </div>
++
++      <div className="mt-8 flex justify-end">
++        <Link
++          href="/new"
++          className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-900"
++        >
++          Start another scan
++          <ArrowRight className="h-4 w-4" />
++        </Link>
++      </div>
+     </div>
+   );
+ }
+diff --git a/components/ProjectVerificationView.tsx b/components/ProjectVerificationView.tsx
+index b466f23..d9333bf 100644
+--- a/components/ProjectVerificationView.tsx
++++ b/components/ProjectVerificationView.tsx
+@@ -32,6 +32,8 @@ interface VerificationProject {
+   id: string;
+   name: string;
+   projectType: string;
++  publicSlug: string | null;
++  badgeEligible: boolean;
+   repoUrl: string | null;
+   websiteUrl: string | null;
+   latestScan: VerificationScan & { vulnerabilities: VerificationVulnerability[] };
+@@ -93,6 +95,7 @@ export default function ProjectVerificationView({ project }: { project: Verifica
+ 
+   const criticalCount = latestScan.vulnerabilities.filter(v => v.severity === 'critical').length;
+   const publicSourceUrl = project.projectType === 'website' ? project.websiteUrl : project.repoUrl;
++  const badgeUrl = project.badgeEligible && project.publicSlug ? `/api/badge/${project.publicSlug}` : null;
+ 
+   return (
+     <div className="mx-auto max-w-6xl px-6 py-12">
+@@ -117,6 +120,11 @@ export default function ProjectVerificationView({ project }: { project: Verifica
+               This public page shows Almond teAI&apos;s latest automated security verification record for this project.
+               It is intended to improve transparency and trust, not to guarantee absolute security.
+             </p>
++            {badgeUrl && (
++              <div className="mt-5">
++                <img src={badgeUrl} alt="Almond teAI trust badge" className="h-[74px] w-[332px]" />
++              </div>
++            )}
+             {publicSourceUrl && (
+               <a
+                 href={publicSourceUrl}
+diff --git a/components/ScanReportView.tsx b/components/ScanReportView.tsx
+index 17e0722..1c0a959 100644
+--- a/components/ScanReportView.tsx
++++ b/components/ScanReportView.tsx
+@@ -8,9 +8,22 @@ import { formatDate } from '@/lib/utils';
+ import { useLanguage } from '@/contexts/LanguageContext';
+ import { strings } from '@/lib/i18n';
+ import { gradeLabel, scoreStatusKey } from '@/lib/scoring';
++import { buildScoreDrivers } from '@/lib/score-drivers';
++import { getPlanEntitlements } from '@/lib/entitlements';
+ import type { Scan, Vulnerability } from '@prisma/client';
+ 
+-type ScanWithVulns = Scan & {
++type ScanCoverageFields = {
++  filesSkipped?: number;
++  filesSkippedBySize?: number;
++  filesSkippedByType?: number;
++  dependencyAnalysisComplete?: boolean;
++  dependencyWarning?: string | null;
++  coverageNotes?: string | null;
++  safeVerificationOnly?: boolean;
++  networkChecksPartial?: boolean;
++};
++
++type ScanWithVulns = Scan & ScanCoverageFields & {
+   vulnerabilities: Vulnerability[];
+   project?: {
+     id: string;
+@@ -18,6 +31,9 @@ type ScanWithVulns = Scan & {
+     badgeEligible: boolean;
+     monitoringEnabled: boolean;
+     publicSlug: string | null;
++    owner?: {
++      plan: string;
++    } | null;
+   } | null;
+ };
+ 
+@@ -69,6 +85,14 @@ function regressionStatusLabel(status: string, t: typeof strings['en']) {
+   }
+ }
+ 
++function coverageStatusLabel(complete: boolean) {
++  return complete ? 'Complete' : 'Incomplete';
++}
++
++function yesNoLabel(value: boolean) {
++  return value ? 'Yes' : 'No';
++}
++
+ function LocalBadgePreview({ score, createdAt, status }: { score: number; createdAt: Date | string; status: string }) {
+   const grade = gradeLabel(score);
+   const date = new Date(createdAt).toISOString().slice(0, 10);
+@@ -96,8 +120,8 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+   const [visibility, setVisibility] = useState(scan.project?.visibility ?? 'private');
+   const [savedVisibility, setSavedVisibility] = useState(scan.project?.visibility ?? 'private');
+   const [badgeEligible, setBadgeEligible] = useState(scan.project?.badgeEligible ?? false);
++  const [savedBadgeEligible, setSavedBadgeEligible] = useState(scan.project?.badgeEligible ?? false);
+   const [monitoringEnabled, setMonitoringEnabled] = useState(scan.project?.monitoringEnabled ?? false);
+-  const [adminToken, setAdminToken] = useState('');
+   const [saving, setSaving] = useState(false);
+   const [settingsMessage, setSettingsMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+   const [copiedType, setCopiedType] = useState<'markdown' | 'html' | null>(null);
+@@ -113,7 +137,6 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json' },
+         body: JSON.stringify({
+-          token: adminToken,
+           visibility,
+           badgeEligible,
+           monitoringEnabled,
+@@ -125,6 +148,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+         setSettingsMessage({ type: 'error', text: data.error ?? 'Failed to save project settings.' });
+       } else {
+         setSavedVisibility(visibility);
++        setSavedBadgeEligible(badgeEligible);
+         setSettingsMessage({ type: 'success', text: 'Project settings saved.' });
+       }
+     } catch {
+@@ -182,6 +206,15 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+   const showRegression = Boolean(scan.previousScanId && scan.regressionStatus && scan.regressionSummary);
+   const deltaValue = scan.scoreDelta ?? 0;
+   const deltaText = `${deltaValue > 0 ? '+' : ''}${deltaValue}`;
++  const badgeActive = savedVisibility === 'public' && savedBadgeEligible;
++  const coverageNotes = (scan.coverageNotes ?? '')
++    .split('\n')
++    .map((note: string) => note.trim())
++    .filter(Boolean);
++  const scoreDrivers = buildScoreDrivers(scan.scanType as 'github' | 'upload' | 'website', vulns);
++  const isWebsiteScan = scan.scanType === 'website';
++  const entitlements = getPlanEntitlements(scan.project?.owner?.plan);
++  const isFreePlan = !entitlements.cleanPdf;
+ 
+   async function copyEmbed(type: 'markdown' | 'html') {
+     const value = type === 'markdown' ? markdownEmbed : htmlEmbed;
+@@ -209,36 +242,43 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+           {t.report_back}
+         </Link>
+ 
+-        <div className="flex items-center gap-3">
+-          {scan.scanType === 'website' && scan.websiteUrl && (
+-            <a
+-              href={scan.websiteUrl}
+-              target="_blank"
+-              rel="noopener noreferrer"
+-              className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+-            >
+-              <ExternalLink className="h-4 w-4" />
+-              {t.report_view_website}
+-            </a>
+-          )}
+-          {scan.scanType !== 'website' && scan.repoUrl && (
++        <div className="flex flex-col items-end gap-2">
++          <div className="flex items-center gap-3">
++            {scan.scanType === 'website' && scan.websiteUrl && (
++              <a
++                href={scan.websiteUrl}
++                target="_blank"
++                rel="noopener noreferrer"
++                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
++              >
++                <ExternalLink className="h-4 w-4" />
++                {t.report_view_website}
++              </a>
++            )}
++            {scan.scanType !== 'website' && scan.repoUrl && (
++              <a
++                href={scan.repoUrl}
++                target="_blank"
++                rel="noopener noreferrer"
++                className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
++              >
++                <ExternalLink className="h-4 w-4" />
++                {t.report_view_repo}
++              </a>
++            )}
+             <a
+-              href={scan.repoUrl}
+-              target="_blank"
+-              rel="noopener noreferrer"
+-              className="flex items-center gap-2 rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
++              href={`/api/report/${scan.id}`}
++              className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+             >
+-              <ExternalLink className="h-4 w-4" />
+-              {t.report_view_repo}
++              <Download className="h-4 w-4" />
++              {t.report_download}
+             </a>
+-          )}
+-          <a
+-            href={`/api/report/${scan.id}`}
+-            className="flex items-center gap-2 rounded-lg bg-gray-900 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-gray-700"
+-          >
+-            <Download className="h-4 w-4" />
+-            {t.report_download}
+-          </a>
++          </div>
++          <p className="text-right text-xs text-gray-500">
++            {isFreePlan
++              ? 'Free plan exports are watermarked. Upgrade to Pro for clean PDF and certificate export.'
++              : 'Pro plan includes clean PDF export and certificate export when available.'}
++          </p>
+         </div>
+       </div>
+ 
+@@ -338,14 +378,137 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+         </div>
+       )}
+ 
++      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 card-shadow">
++        <div className="flex flex-wrap items-start justify-between gap-3">
++          <div>
++            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Why this score?</h2>
++            <p className="mt-1 text-sm text-gray-500">
++              Short explanation of the main factors that influenced this scan score.
++            </p>
++          </div>
++          <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
++            Score drivers
++          </span>
++        </div>
++
++        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
++          <p className="text-sm leading-relaxed text-slate-700">{scoreDrivers.summary}</p>
++        </div>
++
++        <div className="mt-5 space-y-3">
++          {scoreDrivers.drivers.map((driver: string) => (
++            <div key={driver} className="flex gap-3 rounded-xl border border-gray-100 bg-white px-4 py-3">
++              <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-slate-500" />
++              <p className="text-sm leading-relaxed text-gray-700">{driver}</p>
++            </div>
++          ))}
++        </div>
++      </div>
++
++      <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 card-shadow">
++        <div className="flex flex-wrap items-start justify-between gap-3">
++          <div>
++            <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">Coverage Notes</h2>
++            <p className="mt-1 text-sm text-gray-500">
++              Coverage and completeness details for this scan run.
++            </p>
++          </div>
++          <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${
++            coverageNotes.length > 0 ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-green-200 bg-green-50 text-green-700'
++          }`}>
++            {coverageNotes.length > 0 ? 'Partial coverage notes present' : 'No notable coverage limits'}
++          </span>
++        </div>
++
++        <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
++          {isWebsiteScan ? (
++            <>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Checks run</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{scan.totalFiles}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Checks passed</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{scan.scannedFiles}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Sensitive paths probed</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{scan.linesScanned}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Safe verification only</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{yesNoLabel(scan.safeVerificationOnly ?? false)}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Network checks partial</p>
++                <p className={`mt-1 text-xl font-bold ${scan.networkChecksPartial ?? false ? 'text-amber-700' : 'text-gray-900'}`}>
++                  {yesNoLabel(scan.networkChecksPartial ?? false)}
++                </p>
++              </div>
++            </>
++          ) : (
++            <>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Files scanned</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{scan.scannedFiles}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Files skipped</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{scan.filesSkipped ?? 0}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Skipped by size</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{scan.filesSkippedBySize ?? 0}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Skipped by type</p>
++                <p className="mt-1 text-xl font-bold text-gray-900">{scan.filesSkippedByType ?? 0}</p>
++              </div>
++              <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
++                <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400">Dependency analysis</p>
++                <p className={`mt-1 text-xl font-bold ${scan.dependencyAnalysisComplete ?? true ? 'text-green-700' : 'text-amber-700'}`}>
++                  {coverageStatusLabel(scan.dependencyAnalysisComplete ?? true)}
++                </p>
++              </div>
++            </>
++          )}
++          {!isWebsiteScan && scan.dependencyWarning && (
++            <div className="rounded-lg border border-amber-100 bg-amber-50 p-3 xl:col-span-2">
++              <p className="text-[11px] font-bold uppercase tracking-wide text-amber-700">Dependency warning</p>
++              <p className="mt-1 text-sm text-amber-800">{scan.dependencyWarning}</p>
++            </div>
++          )}
++        </div>
++
++        {coverageNotes.length > 0 && (
++          <div className="mt-5 rounded-xl border border-amber-100 bg-amber-50 p-4">
++            <div className="space-y-3">
++              {coverageNotes.map((note: string) => (
++                <div key={note} className="flex gap-3 text-sm text-amber-900">
++                  <span className="mt-1 h-2 w-2 shrink-0 rounded-full bg-amber-500" />
++                  <p className="leading-relaxed">{note}</p>
++                </div>
++              ))}
++            </div>
++          </div>
++        )}
++      </div>
++
+       {publicSlug && badgeUrl && projectUrl && (
+         <div className="mb-8 rounded-xl border border-gray-200 bg-white p-6 card-shadow">
+           <h2 className="text-sm font-bold uppercase tracking-wider text-gray-400">{t.badge_title}</h2>
+           <p className="mt-1 text-sm text-gray-500">{t.badge_desc}</p>
++          {!entitlements.trustBadge && (
++            <div className="mt-4 rounded-xl border border-amber-100 bg-amber-50 p-4">
++              <p className="text-sm leading-relaxed text-amber-800">
++                Trust badges are available on Pro. Free projects can still publish a public verification page, but badge embeds remain locked.
++              </p>
++            </div>
++          )}
+ 
+           <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-5">
+             <div className="flex flex-wrap items-center gap-4">
+-              {savedVisibility === 'public' ? (
++              {badgeActive ? (
+                 <a href={projectUrl} target="_blank" rel="noopener noreferrer">
+                   <img src={badgeUrl} alt="Almond teAI verified badge" className="h-[74px] w-[332px]" />
+                 </a>
+@@ -354,20 +517,26 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+               )}
+               <span className="text-sm text-gray-400">{t.badge_preview_note}</span>
+             </div>
+-            {savedVisibility !== 'public' && (
+-              <p className="mt-3 text-sm text-gray-500">{t.badge_unavailable}</p>
++            {!badgeActive && (
++              <p className="mt-3 text-sm text-gray-500">
++                {savedVisibility !== 'public'
++                  ? t.badge_unavailable
++                  : 'Enable badge eligibility to publish the live trust badge.'}
++              </p>
+             )}
+           </div>
+ 
+           <div className="mt-4 flex flex-wrap gap-3">
+             <button
+               onClick={() => copyEmbed('markdown')}
++              disabled={!badgeActive}
+               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+             >
+               {copiedType === 'markdown' ? t.badge_copied : t.badge_copy_markdown}
+             </button>
+             <button
+               onClick={() => copyEmbed('html')}
++              disabled={!badgeActive}
+               className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-900"
+             >
+               {copiedType === 'html' ? t.badge_copied : t.badge_copy_html}
+@@ -393,8 +562,8 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+             )}
+           </div>
+ 
+-          <div className="mt-5 grid gap-4 md:grid-cols-2">
+-            <div>
++          <div className="mt-5">
++            <div className="max-w-xs">
+               <label className="block text-sm font-medium text-gray-700">Visibility</label>
+               <select
+                 value={visibility}
+@@ -405,17 +574,6 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+                 <option value="public">Public</option>
+               </select>
+             </div>
+-
+-            <div>
+-              <label className="block text-sm font-medium text-gray-700">Internal admin token</label>
+-              <input
+-                type="password"
+-                value={adminToken}
+-                onChange={e => setAdminToken(e.target.value)}
+-                placeholder="Enter INTERNAL_ADMIN_TOKEN"
+-                className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-300"
+-              />
+-            </div>
+           </div>
+ 
+           <div className="mt-4 flex flex-wrap gap-6">
+@@ -424,6 +582,7 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+                 type="checkbox"
+                 checked={badgeEligible}
+                 onChange={e => setBadgeEligible(e.target.checked)}
++                disabled={!entitlements.trustBadge}
+                 className="h-4 w-4 rounded border-gray-300"
+               />
+               Badge eligible
+@@ -434,12 +593,25 @@ export default function ScanReportView({ scan }: { scan: ScanWithVulns }) {
+                 type="checkbox"
+                 checked={monitoringEnabled}
+                 onChange={e => setMonitoringEnabled(e.target.checked)}
++                disabled={!entitlements.continuousMonitoring}
+                 className="h-4 w-4 rounded border-gray-300"
+               />
+               Monitoring enabled
+             </label>
+           </div>
+ 
++          {(!entitlements.trustBadge || !entitlements.continuousMonitoring) && (
++            <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
++              <p className="text-sm leading-relaxed text-slate-700">
++                {entitlements.trustBadge
++                  ? 'Continuous monitoring is available on Pro.'
++                  : entitlements.continuousMonitoring
++                  ? 'Trust badge publishing is available on Pro.'
++                  : 'Trust badge publishing and continuous monitoring are available on Pro.'}
++              </p>
++            </div>
++          )}
++
+           <div className="mt-5 flex items-center gap-3">
+             <button
+               onClick={saveProjectSettings}
+diff --git a/lib/pdf.ts b/lib/pdf.ts
+index 17cb22a..f8791ff 100644
+--- a/lib/pdf.ts
++++ b/lib/pdf.ts
+@@ -1,15 +1,34 @@
+ /* eslint-disable @typescript-eslint/no-require-imports */
+ import type { Scan, Vulnerability } from '@prisma/client';
+ import { gradeLabel, scoreInterpretation, scoreStatusKey } from '@/lib/scoring';
++import { buildScoreDrivers } from '@/lib/score-drivers';
+ 
+-type ScanWithVulns = Scan & {
++type ScanCoverageFields = {
++  filesSkipped?: number;
++  filesSkippedBySize?: number;
++  filesSkippedByType?: number;
++  dependencyAnalysisComplete?: boolean;
++  dependencyWarning?: string | null;
++  coverageNotes?: string | null;
++  safeVerificationOnly?: boolean;
++  networkChecksPartial?: boolean;
++};
++
++type ScanWithVulns = Scan & ScanCoverageFields & {
+   vulnerabilities: Vulnerability[];
+   project?: {
+     publicSlug: string | null;
+     visibility: string;
++    owner?: {
++      plan: string;
++    } | null;
+   } | null;
+ };
+ 
++interface PdfRenderOptions {
++  watermarked: boolean;
++}
++
+ function severityOrder(severity: string) {
+   return { critical: 0, high: 1, medium: 2, low: 3, info: 4 }[severity.toLowerCase()] ?? 5;
+ }
+@@ -565,7 +584,174 @@ function verificationText(verificationUrl: string | null): any {
+   };
+ }
+ 
+-export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
++function coverageStatusText(value: boolean | null | undefined): string {
++  return value === false ? 'Incomplete' : 'Complete';
++}
++
++function yesNoText(value: boolean | null | undefined): string {
++  return value ? 'Yes' : 'No';
++}
++
++function coverageMetricCard(label: string, value: string, tone: 'neutral' | 'success' | 'warning' = 'neutral') {
++  const palette = {
++    neutral: { text: '#0f172a', bg: '#f8fafc' },
++    success: { text: '#15803d', bg: '#f0fdf4' },
++    warning: { text: '#c2410c', bg: '#fff7ed' },
++  }[tone];
++
++  return {
++    table: {
++      widths: ['*'],
++      body: [[{
++        stack: [
++          { text: label, fontSize: 8.2, bold: true, color: '#94a3b8', margin: [0, 0, 0, 6] },
++          { text: value, fontSize: 14, bold: true, color: palette.text },
++        ],
++        border: [false, false, false, false],
++      }]],
++    },
++    layout: {
++      fillColor: () => palette.bg,
++      hLineWidth: () => 0,
++      vLineWidth: () => 0,
++      paddingLeft: () => 12,
++      paddingRight: () => 12,
++      paddingTop: () => 12,
++      paddingBottom: () => 12,
++    },
++  };
++}
++
++function coverageNotesSection(scan: ScanWithVulns) {
++  const notes = (scan.coverageNotes ?? '')
++    .split('\n')
++    .map((note: string) => note.trim())
++    .filter(Boolean);
++
++  const dependencyComplete = scan.dependencyAnalysisComplete ?? true;
++  const safeVerificationOnly = scan.safeVerificationOnly ?? false;
++  const networkChecksPartial = scan.networkChecksPartial ?? false;
++
++  const metrics = scan.scanType === 'website'
++    ? [
++        coverageMetricCard('Checks Run', String(scan.totalFiles), 'neutral'),
++        coverageMetricCard('Checks Passed', String(scan.scannedFiles), 'neutral'),
++        coverageMetricCard('Safe Read-Only', yesNoText(safeVerificationOnly), safeVerificationOnly ? 'success' : 'neutral'),
++        coverageMetricCard('Network Partial', yesNoText(networkChecksPartial), networkChecksPartial ? 'warning' : 'neutral'),
++      ]
++    : [
++        coverageMetricCard('Files Scanned', String(scan.scannedFiles), 'neutral'),
++        coverageMetricCard('Files Skipped', String(scan.filesSkipped ?? 0), (scan.filesSkipped ?? 0) > 0 ? 'warning' : 'neutral'),
++        coverageMetricCard('Skipped by Size', String(scan.filesSkippedBySize ?? 0), (scan.filesSkippedBySize ?? 0) > 0 ? 'warning' : 'neutral'),
++        coverageMetricCard('Skipped by Type', String(scan.filesSkippedByType ?? 0), (scan.filesSkippedByType ?? 0) > 0 ? 'warning' : 'neutral'),
++      ];
++
++  const repoMeta = scan.scanType === 'website'
++    ? []
++    : [
++        {
++          columns: [
++            { width: 130, text: 'Dependency analysis', fontSize: 9.2, bold: true, color: '#64748b' },
++            { width: '*', text: coverageStatusText(dependencyComplete), fontSize: 9.5, color: dependencyComplete ? '#15803d' : '#c2410c', bold: true },
++          ],
++          margin: [0, 0, 0, scan.dependencyWarning ? 6 : 0],
++        },
++        ...(scan.dependencyWarning
++          ? [{
++              text: scan.dependencyWarning,
++              fontSize: 9.3,
++              color: '#9a3412',
++              lineHeight: 1.3,
++              margin: [0, 0, 0, 0],
++            }]
++          : []),
++      ];
++
++  return {
++    table: {
++      widths: ['*'],
++      body: [[{
++        stack: [
++          { text: 'Coverage Notes', color: '#94a3b8', fontSize: 9, bold: true, margin: [0, 0, 0, 10] },
++          {
++            table: {
++              widths: ['*', '*', '*', '*'],
++              body: [metrics],
++            },
++            layout: {
++              hLineWidth: () => 0,
++              vLineWidth: () => 0,
++              paddingLeft: () => 6,
++              paddingRight: () => 6,
++              paddingTop: () => 0,
++              paddingBottom: () => 0,
++            },
++            margin: [0, 0, 0, repoMeta.length > 0 || notes.length > 0 ? 12 : 0],
++          },
++          ...(repoMeta.length > 0
++            ? [{
++                table: {
++                  widths: ['*'],
++                  body: [[{
++                    stack: repoMeta,
++                    border: [false, false, false, false],
++                  }]],
++                },
++                layout: {
++                  fillColor: () => '#f8fafc',
++                  hLineWidth: () => 0,
++                  vLineWidth: () => 0,
++                  paddingLeft: () => 12,
++                  paddingRight: () => 12,
++                  paddingTop: () => 10,
++                  paddingBottom: () => 10,
++                },
++                margin: [0, 0, 0, notes.length > 0 ? 10 : 0],
++              }]
++            : []),
++          ...(notes.length > 0
++            ? [{
++                table: {
++                  widths: ['*'],
++                  body: [[{
++                    ul: notes.map((note: string) => ({
++                      text: note,
++                      margin: [0, 0, 0, 4],
++                    })),
++                    fontSize: 9.5,
++                    color: '#374151',
++                    border: [false, false, false, false],
++                  }]],
++                },
++                layout: {
++                  fillColor: () => '#f8fafc',
++                  hLineWidth: () => 0,
++                  vLineWidth: () => 0,
++                  paddingLeft: () => 12,
++                  paddingRight: () => 12,
++                  paddingTop: () => 10,
++                  paddingBottom: () => 8,
++                },
++              }]
++            : []),
++        ],
++        border: [false, false, false, false],
++      }]],
++    },
++    layout: {
++      fillColor: () => '#ffffff',
++      hLineWidth: () => 0,
++      vLineWidth: () => 0,
++      paddingLeft: () => 18,
++      paddingRight: () => 18,
++      paddingTop: () => 16,
++      paddingBottom: () => 16,
++    },
++    margin: [0, 0, 0, 18],
++  };
++}
++
++export async function generatePdfBuffer(scan: ScanWithVulns, options: PdfRenderOptions): Promise<Buffer> {
+   const PdfPrinter = require('pdfmake/build/pdfmake');
+   const vfsFonts = require('pdfmake/build/vfs_fonts');
+   PdfPrinter.vfs = vfsFonts.pdfMake?.vfs ?? vfsFonts.vfs;
+@@ -593,48 +779,41 @@ export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
+   const verificationUrl = scan.project?.visibility === 'public' && scan.project.publicSlug
+     ? `${appUrl || ''}/projects/${scan.project.publicSlug}`
+     : null;
++  const scoreDrivers = buildScoreDrivers(scan.scanType as 'github' | 'upload' | 'website', scan.vulnerabilities);
++  const verificationFooterText = verificationUrl ?? 'Verification URL unavailable for private reports';
+ 
+   const docDef: any = {
+     pageSize: 'A4',
+     pageMargins: [44, 44, 44, 42],
+     defaultStyle: { font: 'Roboto', fontSize: 10, color: '#111827' },
+-    background: (currentPage: number, pageSize: { width: number; height: number }) => {
+-      if (currentPage === 1) return null;
+-
+-      return [
++    ...(options.watermarked ? {
++      watermark: {
++        text: 'Almond teAI\nSecurity Verification',
++        color: '#cbd5e1',
++        opacity: 0.16,
++        bold: true,
++        angle: -24,
++      },
++    } : {}),
++    footer: (currentPage: number, pageCount: number) => ({
++      margin: [44, 0, 44, 16],
++      stack: [
+         {
+-          canvas: [
+-            {
+-              type: 'rect',
+-              x: pageSize.width - 190,
+-              y: pageSize.height - 92,
+-              w: 136,
+-              h: 42,
+-              color: '#fafafa',
+-              r: 8,
+-            },
++          columns: [
++            { text: 'Almond teAI Security Report', fontSize: 8.5, color: '#64748b' },
++            { text: `Report ID: ${scan.id}`, fontSize: 8.5, color: '#64748b', alignment: 'center' },
++            { text: `Page ${currentPage} of ${pageCount}`, fontSize: 8.5, color: '#64748b', alignment: 'right' },
+           ],
+         },
+         {
+-          text: 'Almond teAI',
+-          fontSize: 10,
+-          bold: true,
+-          color: '#d1d5db',
+-          absolutePosition: { x: pageSize.width - 174, y: pageSize.height - 80 },
+-        },
+-        {
+-          text: 'Security Verification',
++          text: verificationFooterText,
+           fontSize: 7.4,
+-          color: '#d1d5db',
+-          absolutePosition: { x: pageSize.width - 174, y: pageSize.height - 66 },
++          color: '#94a3b8',
++          alignment: 'center',
++          margin: [0, 3, 0, 0],
++          link: verificationUrl ?? undefined,
++          decoration: verificationUrl ? 'underline' : undefined,
+         },
+-      ];
+-    },
+-    footer: (currentPage: number, pageCount: number) => ({
+-      margin: [44, 0, 44, 18],
+-      columns: [
+-        { text: 'Almond teAI Security Report', fontSize: 8.5, color: '#64748b' },
+-        { text: `Page ${currentPage} of ${pageCount}`, fontSize: 8.5, color: '#64748b', alignment: 'right' },
+       ],
+     }),
+     content: [
+@@ -674,19 +853,41 @@ export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
+       },
+       {
+         table: {
+-          widths: ['*'],
+-          body: [[{
+-            stack: [
+-              { text: target, fontSize: 22, bold: true, color: '#0f172a', margin: [0, 0, 0, 8] },
+-              {
+-                columns: [
+-                  { text: typeLabel, fontSize: 10, color: '#64748b' },
+-                  { text: new Date(scan.createdAt).toLocaleString(), fontSize: 10, color: '#64748b', alignment: 'right' },
+-                ],
+-              },
+-            ],
+-            border: [false, false, false, false],
+-          }]],
++          widths: ['*', 120],
++          body: [[
++            {
++              stack: [
++                { text: target, fontSize: 22, bold: true, color: '#0f172a', margin: [0, 0, 0, 8] },
++                {
++                  columns: [
++                    { text: typeLabel, fontSize: 10, color: '#64748b' },
++                    { text: new Date(scan.createdAt).toLocaleString(), fontSize: 10, color: '#64748b', alignment: 'right' },
++                  ],
++                },
++              ],
++              border: [false, false, false, false],
++            },
++            {
++              stack: [
++                {
++                  text: options.watermarked ? 'Watermarked Report' : 'Clean Report',
++                  fontSize: 9,
++                  bold: true,
++                  color: options.watermarked ? '#c2410c' : '#15803d',
++                  alignment: 'right',
++                  margin: [0, 0, 0, 6],
++                },
++                {
++                  text: `Report ID\n${scan.id}`,
++                  fontSize: 8.6,
++                  color: '#64748b',
++                  alignment: 'right',
++                  lineHeight: 1.35,
++                },
++              ],
++              border: [false, false, false, false],
++            },
++          ]],
+         },
+         layout: {
+           fillColor: () => '#ffffff',
+@@ -841,6 +1042,34 @@ export async function generatePdfBuffer(scan: ScanWithVulns): Promise<Buffer> {
+         },
+         margin: [0, 8, 0, 18],
+       },
++      {
++        table: {
++          widths: ['*'],
++          body: [[{
++            stack: [
++              { text: 'Why this score?', color: '#94a3b8', fontSize: 9, bold: true, margin: [0, 0, 0, 8] },
++              { text: scoreDrivers.summary, fontSize: 10.2, color: '#111827', lineHeight: 1.34, margin: [0, 0, 0, 10] },
++              {
++                ul: scoreDrivers.drivers.slice(0, 3).map(text => ({ text, margin: [0, 0, 0, 3] })),
++                fontSize: 9.6,
++                color: '#374151',
++              },
++            ],
++            border: [false, false, false, false],
++          }]],
++        },
++        layout: {
++          fillColor: () => '#f8fafc',
++          hLineWidth: () => 0,
++          vLineWidth: () => 0,
++          paddingLeft: () => 18,
++          paddingRight: () => 18,
++          paddingTop: () => 16,
++          paddingBottom: () => 16,
++        },
++        margin: [0, 0, 0, 18],
++      },
++      coverageNotesSection(scan),
+       {
+         table: {
+           widths: ['*', '*', '*', '*', '*'],
+diff --git a/lib/scanner/dependency-scanner.ts b/lib/scanner/dependency-scanner.ts
+index 88c279f..3e0b1be 100644
+--- a/lib/scanner/dependency-scanner.ts
++++ b/lib/scanner/dependency-scanner.ts
+@@ -1,7 +1,7 @@
+ import fs from 'fs';
+ import path from 'path';
+ import type { Severity } from './patterns';
+-import type { VulnerabilityResult } from './types';
++import type { DependencyScanResult, VulnerabilityResult } from './types';
+ 
+ interface DependencyEntry {
+   name: string;
+@@ -403,7 +403,7 @@ function dependencyDescription(entry: DependencyEntry, vuln: OsvVulnerability, s
+   return `Dependency: ${entry.name}. Installed version: ${entry.version}.${safeText} ${summary}`.trim();
+ }
+ 
+-async function queryOsv(entry: DependencyEntry): Promise<OsvVulnerability[]> {
++async function queryOsv(entry: DependencyEntry): Promise<{ vulns: OsvVulnerability[]; failed: boolean }> {
+   try {
+     const response = await fetch('https://api.osv.dev/v1/query', {
+       method: 'POST',
+@@ -417,11 +417,11 @@ async function queryOsv(entry: DependencyEntry): Promise<OsvVulnerability[]> {
+       }),
+     });
+ 
+-    if (!response.ok) return [];
++    if (!response.ok) return { vulns: [], failed: true };
+     const json = await response.json() as { vulns?: OsvVulnerability[] };
+-    return json.vulns ?? [];
++    return { vulns: json.vulns ?? [], failed: false };
+   } catch {
+-    return [];
++    return { vulns: [], failed: true };
+   }
+ }
+ 
+@@ -455,13 +455,18 @@ async function mapWithConcurrency<T, R>(
+   return results;
+ }
+ 
+-export async function scanDependencies(rootDir: string): Promise<VulnerabilityResult[]> {
++export async function scanDependencies(rootDir: string): Promise<DependencyScanResult> {
+   const dependencyFiles = collectDependencyFiles(rootDir);
+   const parsed = dependencyFiles.flatMap(parseDependencyFile);
+   const dependencies = dedupeDependencies(parsed).slice(0, 120);
++  let hadLookupFailure = false;
+ 
+   const resultGroups = await mapWithConcurrency(dependencies, 5, async entry => {
+-    const vulns = await queryOsv(entry);
++    const { vulns, failed } = await queryOsv(entry);
++    if (failed) {
++      hadLookupFailure = true;
++    }
++
+     return vulns.map<VulnerabilityResult>(vuln => {
+       const safeVersion = findSafeVersion(vuln);
+       const severity = deriveSeverity(vuln);
+@@ -482,5 +487,27 @@ export async function scanDependencies(rootDir: string): Promise<VulnerabilityRe
+     });
+   });
+ 
+-  return resultGroups.flat();
++  const vulnerabilities = resultGroups.flat();
++
++  if (hadLookupFailure && dependencyFiles.length > 0) {
++    vulnerabilities.push({
++      type: 'Dependency Scan Incomplete',
++      category: 'dependency',
++      severity: 'info',
++      confidence: 'detected',
++      exploitability: 'none',
++      file: 'Dependency manifests',
++      description: 'One or more OSV dependency lookups could not be completed, so dependency vulnerability coverage is incomplete for this scan.',
++      suggestion: 'Re-run the scan when network access to OSV is available to complete dependency verification.',
++      code: dependencyFiles.slice(0, 5).map(file => path.relative(rootDir, file)).join(', '),
++    });
++  }
++
++  return {
++    vulnerabilities,
++    completed: !hadLookupFailure,
++    warning: hadLookupFailure
++      ? 'One or more OSV dependency lookups failed, so dependency vulnerability results are incomplete.'
++      : null,
++  };
+ }
+diff --git a/lib/scanner/index.ts b/lib/scanner/index.ts
+index 6b86421..709c75f 100644
+--- a/lib/scanner/index.ts
++++ b/lib/scanner/index.ts
+@@ -11,7 +11,7 @@ import {
+ import { calculateScore, type FindingConfidence } from '@/lib/scoring';
+ import { scanSecrets } from './secret-scanner';
+ import { scanDependencies } from './dependency-scanner';
+-import type { ScanResult, VulnerabilityResult } from './types';
++import type { DependencyScanResult, ScanResult, VulnerabilityResult } from './types';
+ 
+ interface SeverityCounts {
+   critical: number;
+@@ -21,6 +21,13 @@ interface SeverityCounts {
+   info: number;
+ }
+ 
++interface FileCollectionStats {
++  files: string[];
++  filesSkippedByType: number;
++  filesSkippedBySize: number;
++  filesSkippedByLimit: number;
++}
++
+ const HIGH_VALUE_TYPES = new Set([
+   'Hardcoded Secret',
+   'SQL Injection',
+@@ -28,6 +35,15 @@ const HIGH_VALUE_TYPES = new Set([
+   'Insecure Authentication',
+ ]);
+ 
++const GENERIC_SECRET_PLACEHOLDERS = [
++  'example',
++  'sample',
++  'changeme',
++  'dummy',
++  'test',
++  'xxx',
++];
++
+ function isScannerInternal(relPath: string): boolean {
+   const normalized = relPath.replace(/\\/g, '/').toLowerCase();
+   return normalized.startsWith('lib/scanner/');
+@@ -58,6 +74,53 @@ function shouldSuppressPattern(relPath: string, patternType: string, severity: S
+   return severity === 'low' || severity === 'medium' || severity === 'info';
+ }
+ 
++function isCommentLine(lineContent: string): boolean {
++  const trimmed = lineContent.trim();
++  return trimmed.startsWith('//') || trimmed.startsWith('#') || trimmed.startsWith('*') || trimmed.startsWith('/*');
++}
++
++function isInstructionalLine(lineContent: string): boolean {
++  const normalized = lineContent.toLowerCase();
++  return (
++    normalized.includes('example') ||
++    normalized.includes('sample') ||
++    normalized.includes('tutorial') ||
++    normalized.includes('demo') ||
++    normalized.includes('placeholder') ||
++    normalized.includes('replace this')
++  );
++}
++
++function isGenericHardcodedSecretPattern(patternId: string, patternName: string): boolean {
++  return patternId === 'HC_GENERIC_SECRET' || patternName === 'Hardcoded Secret/Token';
++}
++
++function extractAssignedSecretValue(lineContent: string): string {
++  const match = lineContent.match(/[:=]\s*['"`]?([^'"`\s,;]+(?:\s[^'"`]+)?)['"`]?/);
++  return (match?.[1] ?? '').trim().toLowerCase();
++}
++
++function looksLikePlaceholderSecret(value: string): boolean {
++  if (!value) return true;
++  if (value.length < 8) return true;
++  return GENERIC_SECRET_PLACEHOLDERS.some(placeholder => value.includes(placeholder));
++}
++
++function shouldSuppressHardcodedSecretMatch(
++  relPath: string,
++  lineContent: string,
++  patternId: string,
++  patternName: string,
++): boolean {
++  if (!isGenericHardcodedSecretPattern(patternId, patternName)) return false;
++  if (isLowValueContext(relPath)) return true;
++  if (isCommentLine(lineContent)) return true;
++  if (isInstructionalLine(lineContent)) return true;
++
++  const assignedValue = extractAssignedSecretValue(lineContent);
++  return looksLikePlaceholderSecret(assignedValue);
++}
++
+ function normalizedCode(code?: string): string {
+   return (code ?? '')
+     .replace(/\s+/g, ' ')
+@@ -137,7 +200,6 @@ function scanFile(filePath: string, relPath: string, content: string): Vulnerabi
+   const lines = content.split('\n');
+ 
+   for (const pattern of SECURITY_PATTERNS) {
+-    if (pattern.type === 'Hardcoded Secret') continue;
+     if (pattern.fileTypes && !pattern.fileTypes.includes(ext)) continue;
+     if (shouldSuppressPattern(relPath, pattern.type, pattern.severity)) continue;
+ 
+@@ -149,7 +211,11 @@ function scanFile(filePath: string, relPath: string, content: string): Vulnerabi
+       const lineNumber = upToMatch.split('\n').length;
+       const lineContent = lines[lineNumber - 1]?.trim() ?? '';
+ 
+-      if (lineContent.startsWith('//') || lineContent.startsWith('#') || lineContent.startsWith('*')) {
++      if (isCommentLine(lineContent)) {
++        continue;
++      }
++
++      if (pattern.type === 'Hardcoded Secret' && shouldSuppressHardcodedSecretMatch(relPath, lineContent, pattern.id, pattern.name)) {
+         continue;
+       }
+ 
+@@ -178,29 +244,39 @@ function scanFile(filePath: string, relPath: string, content: string): Vulnerabi
+   return results;
+ }
+ 
+-function collectFiles(dir: string, collected: string[] = []): string[] {
+-  if (collected.length >= MAX_FILES) return collected;
++function collectFiles(dir: string, stats: FileCollectionStats = {
++  files: [],
++  filesSkippedByType: 0,
++  filesSkippedBySize: 0,
++  filesSkippedByLimit: 0,
++}): FileCollectionStats {
++  if (stats.files.length >= MAX_FILES) return stats;
+ 
+   let entries: fs.Dirent[];
+   try {
+     entries = fs.readdirSync(dir, { withFileTypes: true });
+   } catch {
+-    return collected;
++    return stats;
+   }
+ 
+   for (const entry of entries) {
+-    if (collected.length >= MAX_FILES) break;
++    if (stats.files.length >= MAX_FILES) {
++      stats.filesSkippedByLimit += 1;
++      continue;
++    }
+ 
+     const fullPath = path.join(dir, entry.name);
+     if (entry.isDirectory()) {
+       if (['node_modules', '.git', '.next', 'dist', 'build', '.cache', '__pycache__', '.venv', 'venv', 'coverage'].includes(entry.name)) {
+         continue;
+       }
+-      collectFiles(fullPath, collected);
++      collectFiles(fullPath, stats);
+     } else if (entry.isFile()) {
+       const ext = path.extname(entry.name).toLowerCase();
+-      if (SKIP_EXTENSIONS.has(ext)) continue;
+-      if (SKIP_FILES.has(entry.name)) continue;
++      if (SKIP_EXTENSIONS.has(ext) || SKIP_FILES.has(entry.name)) {
++        stats.filesSkippedByType += 1;
++        continue;
++      }
+ 
+       let stat: fs.Stats;
+       try {
+@@ -208,17 +284,21 @@ function collectFiles(dir: string, collected: string[] = []): string[] {
+       } catch {
+         continue;
+       }
+-      if (stat.size > MAX_FILE_SIZE) continue;
++      if (stat.size > MAX_FILE_SIZE) {
++        stats.filesSkippedBySize += 1;
++        continue;
++      }
+ 
+-      collected.push(fullPath);
++      stats.files.push(fullPath);
+     }
+   }
+ 
+-  return collected;
++  return stats;
+ }
+ 
+ export async function scanDirectory(dir: string): Promise<ScanResult> {
+-  const allFiles = collectFiles(dir);
++  const fileStats = collectFiles(dir);
++  const allFiles = fileStats.files;
+   const codeVulnerabilities: VulnerabilityResult[] = [];
+   let linesScanned = 0;
+   let scannedFiles = 0;
+@@ -240,15 +320,17 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
+     }
+   }
+ 
+-  const [secretVulnerabilities, dependencyVulnerabilities] = await Promise.all([
++  const [secretVulnerabilities, dependencyResult] = await Promise.all([
+     scanSecrets(allFiles, dir),
+     scanDependencies(dir),
+   ]);
+ 
++  const dependencyScan = dependencyResult as DependencyScanResult;
++
+   const vulnerabilities = dedupeVulnerabilities([
+     ...codeVulnerabilities,
+     ...secretVulnerabilities,
+-    ...dependencyVulnerabilities,
++    ...dependencyScan.vulnerabilities,
+   ]);
+ 
+   const counts: SeverityCounts = { critical: 0, high: 0, medium: 0, low: 0, info: 0 };
+@@ -268,12 +350,44 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
+           counts.low && `${counts.low} low`,
+         ].filter(Boolean).join(', ') + '.';
+ 
++  const finalSummary = dependencyScan.warning
++    ? `${summary}\n\nDependency scan note: ${dependencyScan.warning}`
++    : summary;
++  const filesSkipped = fileStats.filesSkippedByType + fileStats.filesSkippedBySize + fileStats.filesSkippedByLimit;
++  const coverageNotes: string[] = [];
++
++  coverageNotes.push(`Scanned ${scannedFiles} file${scannedFiles === 1 ? '' : 's'} out of ${allFiles.length + filesSkipped} collected candidate file${allFiles.length + filesSkipped === 1 ? '' : 's'}.`);
++
++  if (fileStats.filesSkippedByType > 0) {
++    coverageNotes.push(`${fileStats.filesSkippedByType} file${fileStats.filesSkippedByType === 1 ? '' : 's'} were skipped because their type is excluded from static scanning (for example binary, archive, lock, media, or database files).`);
++  }
++
++  if (fileStats.filesSkippedBySize > 0) {
++    coverageNotes.push(`${fileStats.filesSkippedBySize} file${fileStats.filesSkippedBySize === 1 ? '' : 's'} were skipped for exceeding the current size limit of ${Math.round(MAX_FILE_SIZE / 1024)} KB.`);
++  }
++
++  if (fileStats.filesSkippedByLimit > 0) {
++    coverageNotes.push(`${fileStats.filesSkippedByLimit} file${fileStats.filesSkippedByLimit === 1 ? '' : 's'} were not scanned because the repository exceeded the current per-scan file limit of ${MAX_FILES}.`);
++  }
++
++  if (!dependencyScan.completed && dependencyScan.warning) {
++    coverageNotes.push(dependencyScan.warning);
++  }
++
+   return {
+     score,
+     totalFiles: allFiles.length,
+     scannedFiles,
++    filesSkipped,
++    filesSkippedBySize: fileStats.filesSkippedBySize,
++    filesSkippedByType: fileStats.filesSkippedByType,
+     linesScanned,
++    dependencyAnalysisComplete: dependencyScan.completed,
++    dependencyWarning: dependencyScan.warning,
++    coverageNotes,
++    safeVerificationOnly: false,
++    networkChecksPartial: false,
+     vulnerabilities,
+-    summary,
++    summary: finalSummary,
+   };
+ }
+diff --git a/lib/scanner/secret-scanner.ts b/lib/scanner/secret-scanner.ts
+index 01fbdff..d09a4e2 100644
+--- a/lib/scanner/secret-scanner.ts
++++ b/lib/scanner/secret-scanner.ts
+@@ -55,10 +55,38 @@ const SECRET_PATTERNS: SecretPattern[] = [
+   },
+ ];
+ 
++const ENV_FILE_EXCLUSIONS = new Set([
++  '.env.example',
++  '.env.sample',
++  '.env.template',
++  '.env.test.example',
++  '.env.local.example',
++]);
++
++const ENV_ASSIGNMENT_PATTERN = /(?:^|\n)\s*[A-Z0-9_]+\s*=\s*.+/m;
++
+ function lineNumberFromIndex(content: string, index: number): number {
+   return content.slice(0, index).split('\n').length;
+ }
+ 
++function isSensitiveEnvFile(relPath: string): boolean {
++  const base = path.basename(relPath).toLowerCase();
++  if (ENV_FILE_EXCLUSIONS.has(base)) return false;
++  return base === '.env' || (base.startsWith('.env.') && !base.includes('.example'));
++}
++
++function firstEnvAssignmentLine(lines: string[]): { line: number; code: string } | null {
++  for (let index = 0; index < lines.length; index++) {
++    const code = lines[index].trim();
++    if (!code || code.startsWith('#')) continue;
++    if (/^[A-Z0-9_]+\s*=/.test(code)) {
++      return { line: index + 1, code: code.slice(0, 200) };
++    }
++  }
++
++  return null;
++}
++
+ export async function scanSecrets(files: string[], rootDir: string): Promise<VulnerabilityResult[]> {
+   const results: VulnerabilityResult[] = [];
+ 
+@@ -73,6 +101,22 @@ export async function scanSecrets(files: string[], rootDir: string): Promise<Vul
+     const relPath = path.relative(rootDir, filePath);
+     const lines = content.split('\n');
+ 
++    if (isSensitiveEnvFile(relPath) && ENV_ASSIGNMENT_PATTERN.test(content)) {
++      const firstAssignment = firstEnvAssignmentLine(lines);
++      results.push({
++        type: 'Committed Environment File',
++        category: 'secret',
++        severity: 'critical',
++        confidence: 'verified',
++        exploitability: 'confirmed',
++        file: relPath,
++        line: firstAssignment?.line,
++        code: firstAssignment?.code,
++        description: 'A committed environment file was detected in the repository. Environment files commonly contain secrets and should not be committed to source control.',
++        suggestion: 'Remove the .env file from the repository, rotate any exposed credentials, add .env* to .gitignore, and keep secrets in environment variables or a secret manager.',
++      });
++    }
++
+     for (const pattern of SECRET_PATTERNS) {
+       pattern.pattern.lastIndex = 0;
+       let match: RegExpExecArray | null;
+diff --git a/lib/scanner/types.ts b/lib/scanner/types.ts
+index 2099ea3..8ac3b65 100644
+--- a/lib/scanner/types.ts
++++ b/lib/scanner/types.ts
+@@ -22,7 +22,21 @@ export interface ScanResult {
+   score: number;
+   totalFiles: number;
+   scannedFiles: number;
++  filesSkipped: number;
++  filesSkippedBySize: number;
++  filesSkippedByType: number;
+   linesScanned: number;
++  dependencyAnalysisComplete: boolean;
++  dependencyWarning: string | null;
++  coverageNotes: string[];
++  safeVerificationOnly: boolean;
++  networkChecksPartial: boolean;
+   vulnerabilities: VulnerabilityResult[];
+   summary: string;
+ }
++
++export interface DependencyScanResult {
++  vulnerabilities: VulnerabilityResult[];
++  completed: boolean;
++  warning: string | null;
++}
+diff --git a/lib/scanner/url-scanner.ts b/lib/scanner/url-scanner.ts
+index 7c0f743..c288225 100644
+--- a/lib/scanner/url-scanner.ts
++++ b/lib/scanner/url-scanner.ts
+@@ -30,6 +30,14 @@ export interface UrlScanResult {
+   totalChecks: number;
+   passedChecks: number;
+   probedPaths: number;
++  filesSkipped: number;
++  filesSkippedBySize: number;
++  filesSkippedByType: number;
++  dependencyAnalysisComplete: boolean;
++  dependencyWarning: string | null;
++  coverageNotes: string[];
++  safeVerificationOnly: boolean;
++  networkChecksPartial: boolean;
+ }
+ 
+ const REQUIRED_HEADERS: Array<{
+@@ -556,6 +564,7 @@ async function runExploitVerification(base: string, findings: UrlVulnerability[]
+ 
+ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
+   const vulnerabilities: UrlVulnerability[] = [];
++  let networkChecksPartial = false;
+ 
+   let target: string;
+   try {
+@@ -738,6 +747,9 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
+     const { path, type, category, severity, description, suggestion, status } = probeResult.value;
+     probedPaths++;
+     totalChecks++;
++    if (status == null) {
++      networkChecksPartial = true;
++    }
+     const shouldFlagGraphql = path === '/graphql' && (status === 200 || status === 400 || status === 405);
+     if (status === 200 || shouldFlagGraphql) {
+       vulnerabilities.push(createWebsiteFinding({
+@@ -767,6 +779,14 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
+   if (criticalCount > 0) summary += ` (${criticalCount} critical)`;
+   if (highCount > 0) summary += `, ${highCount} high severity`;
+   summary += `. Security score: ${score}/100.`;
++  const coverageNotes: string[] = [
++    `Website verification used safe, read-only requests only. No exploit attempts, fuzzing, or destructive actions were performed.`,
++    `Executed ${totalChecks} automated check${totalChecks === 1 ? '' : 's'}, with ${probedPaths} sensitive path probe${probedPaths === 1 ? '' : 's'}.`,
++  ];
++
++  if (networkChecksPartial) {
++    coverageNotes.push('Some network-dependent checks did not return a complete response, so website coverage was partially limited for this run.');
++  }
+ 
+   return {
+     score,
+@@ -775,5 +795,13 @@ export async function scanUrl(rawUrl: string): Promise<UrlScanResult> {
+     totalChecks,
+     passedChecks,
+     probedPaths,
++    filesSkipped: 0,
++    filesSkippedBySize: 0,
++    filesSkippedByType: 0,
++    dependencyAnalysisComplete: true,
++    dependencyWarning: null,
++    coverageNotes,
++    safeVerificationOnly: true,
++    networkChecksPartial,
+   };
+ }
+diff --git a/package-lock.json b/package-lock.json
+index 4764574..e6901e4 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -425,6 +425,7 @@
+       "integrity": "sha512-M0SVXfyHnQREBKxCgyo7sffrKttwE6R8PMq330MIUF0pTwjUhLbW84pFDlf06B27XyCR++VtjugEnIHdr07SVA==",
+       "hasInstallScript": true,
+       "license": "Apache-2.0",
++      "peer": true,
+       "engines": {
+         "node": ">=16.13"
+       },
+@@ -562,6 +563,7 @@
+       "integrity": "sha512-z9VXpC7MWrhfWipitjNdgCauoMLRdIILQsAEV+ZesIzBq/oUlxk0m3ApZuMFCXdnS4U7KrI+l3WRUEGQ8K1QKw==",
+       "dev": true,
+       "license": "MIT",
++      "peer": true,
+       "dependencies": {
+         "@types/prop-types": "*",
+         "csstype": "^3.2.2"
+@@ -756,6 +758,7 @@
+         }
+       ],
+       "license": "MIT",
++      "peer": true,
+       "dependencies": {
+         "baseline-browser-mapping": "^2.9.0",
+         "caniuse-lite": "^1.0.30001759",
+@@ -1368,6 +1371,7 @@
+       "version": "2.3.3",
+       "resolved": "https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz",
+       "integrity": "sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==",
++      "dev": true,
+       "hasInstallScript": true,
+       "license": "MIT",
+       "optional": true,
+@@ -1673,6 +1677,7 @@
+       "integrity": "sha512-/imKNG4EbWNrVjoNC/1H5/9GFy+tqjGBHCaSsN+P2RnPqjsLmv6UD3Ej+Kj8nBWaRAwyk7kK5ZUc+OEatnTR3A==",
+       "dev": true,
+       "license": "MIT",
++      "peer": true,
+       "bin": {
+         "jiti": "bin/jiti.js"
+       }
+@@ -1944,6 +1949,7 @@
+       "resolved": "https://registry.npmjs.org/preact/-/preact-10.11.3.tgz",
+       "integrity": "sha512-eY93IVpod/zG3uMF22Unl8h9KkrcKIRs2EGar8hwLZZDU1lkjph303V9HZBwufh2s736U6VXuhD109LYqPoffg==",
+       "license": "MIT",
++      "peer": true,
+       "funding": {
+         "type": "opencollective",
+         "url": "https://opencollective.com/preact"
+@@ -2205,6 +2211,7 @@
+         }
+       ],
+       "license": "MIT",
++      "peer": true,
+       "dependencies": {
+         "nanoid": "^3.3.11",
+         "picocolors": "^1.1.1",
+@@ -2353,6 +2360,7 @@
+       "resolved": "https://registry.npmjs.org/preact/-/preact-10.24.3.tgz",
+       "integrity": "sha512-Z2dPnBnMUfyQfSQ+GBdsGa16hz35YmLmtTLhM169uW944hYL6xzTYkJjC07j+Wosz733pMWx0fgON3JNw1jJQA==",
+       "license": "MIT",
++      "peer": true,
+       "funding": {
+         "type": "opencollective",
+         "url": "https://opencollective.com/preact"
+@@ -2380,6 +2388,7 @@
+       "devOptional": true,
+       "hasInstallScript": true,
+       "license": "Apache-2.0",
++      "peer": true,
+       "dependencies": {
+         "@prisma/engines": "5.22.0"
+       },
+@@ -2429,6 +2438,7 @@
+       "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
+       "integrity": "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==",
+       "license": "MIT",
++      "peer": true,
+       "dependencies": {
+         "loose-envify": "^1.1.0"
+       },
+@@ -2441,6 +2451,7 @@
+       "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz",
+       "integrity": "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==",
+       "license": "MIT",
++      "peer": true,
+       "dependencies": {
+         "loose-envify": "^1.1.0",
+         "scheduler": "^0.23.2"
+@@ -2798,6 +2809,7 @@
+       "integrity": "sha512-5gTmgEY/sqK6gFXLIsQNH19lWb4ebPDLA4SdLP7dsWkIXHWlG66oPuVvXSGFPppYZz8ZDZq0dYYrbHfBCVUb1Q==",
+       "dev": true,
+       "license": "MIT",
++      "peer": true,
+       "engines": {
+         "node": ">=12"
+       },
+diff --git a/package.json b/package.json
+index 266fe3a..85b0469 100644
+--- a/package.json
++++ b/package.json
+@@ -7,6 +7,7 @@
+     "build": "next build",
+     "start": "next start",
+     "lint": "next lint",
++    "benchmarks:validate": "node scripts/validate-benchmarks.mjs",
+     "db:push": "prisma db push",
+     "db:generate": "prisma generate",
+     "db:studio": "prisma studio"
+diff --git a/prisma/schema.prisma b/prisma/schema.prisma
+index 0639065..929ebca 100644
+--- a/prisma/schema.prisma
++++ b/prisma/schema.prisma
+@@ -50,7 +50,15 @@ model Scan {
+   summary         String?
+   totalFiles      Int             @default(0)
+   scannedFiles    Int             @default(0)
++  filesSkipped    Int             @default(0)
++  filesSkippedBySize Int          @default(0)
++  filesSkippedByType Int          @default(0)
+   linesScanned    Int             @default(0)
++  dependencyAnalysisComplete Boolean @default(true)
++  dependencyWarning String?
++  coverageNotes   String?
++  safeVerificationOnly Boolean    @default(false)
++  networkChecksPartial Boolean    @default(false)
+   errorMessage    String?
+   aiSummary       String?
+   previousScanId  String?

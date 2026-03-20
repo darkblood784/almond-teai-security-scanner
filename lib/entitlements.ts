@@ -6,6 +6,7 @@ export interface PlanEntitlements {
   trustBadge: boolean;
   certificateExport: boolean;
   continuousMonitoring: boolean;
+  fixSuggestions: boolean;
   monthlyScanLimit: number;
   monitoringProjectLimit: number;
 }
@@ -17,6 +18,7 @@ const PLAN_MATRIX: Record<PlanName, PlanEntitlements> = {
     trustBadge: false,
     certificateExport: false,
     continuousMonitoring: false,
+    fixSuggestions: false,
     monthlyScanLimit: 10,
     monitoringProjectLimit: 0,
   },
@@ -26,6 +28,7 @@ const PLAN_MATRIX: Record<PlanName, PlanEntitlements> = {
     trustBadge: true,
     certificateExport: true,
     continuousMonitoring: true,
+    fixSuggestions: true,
     monthlyScanLimit: 50,
     monitoringProjectLimit: 10,
   },

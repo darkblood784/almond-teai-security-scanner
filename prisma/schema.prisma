@@ -90,11 +90,31 @@ model Vulnerability {
   code        String?
   description String
   suggestion  String
+  fixability  String   @default("uncategorized")
+  fixLevel    Int      @default(0)
   createdAt   DateTime @default(now())
+  fixSuggestion FixSuggestion?
 
   @@index([scanId])
   @@index([severity])
   @@index([category])
+  @@index([fixability])
+}
+
+model FixSuggestion {
+  id              String        @id @default(cuid())
+  vulnerabilityId String        @unique
+  vulnerability   Vulnerability @relation(fields: [vulnerabilityId], references: [id], onDelete: Cascade)
+  patchCode       String
+  description     String
+  rationale       String
+  confidence      Int           @default(0)
+  provider        String
+  model           String
+  createdAt       DateTime      @default(now())
+
+  @@index([provider])
+  @@index([createdAt])
 }
 
 model User {
@@ -113,6 +133,23 @@ model User {
   projects               Project[]
   accounts               Account[]
   sessions               Session[]
+  fixSuggestionUsage     FixSuggestionUsage[]
+}
+
+model FixSuggestionUsage {
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  period             String
+  totalRequests      Int      @default(0)
+  successfulRequests Int      @default(0)
+  failedRequests     Int      @default(0)
+  lastRequestedAt    DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@unique([userId, period])
+  @@index([period])
 }
 
 model Account {

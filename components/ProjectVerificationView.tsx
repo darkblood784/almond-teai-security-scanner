@@ -142,7 +142,7 @@ export default function ProjectVerificationView({ project }: { project: Verifica
             </div>
             <p className="mt-6 max-w-2xl text-base leading-relaxed text-slate-600">
               This page is Almond teAI&apos;s public trust record for the latest automated verification of this project.
-              It gives customers, partners, and reviewers a clear snapshot of current posture, recent scan history, and surfaced findings.
+              It gives customers, partners, and reviewers a clear, point-in-time snapshot of current posture, recent scan history, and surfaced findings.
             </p>
 
             <div className="mt-6 grid gap-3 sm:grid-cols-3">
@@ -216,7 +216,7 @@ export default function ProjectVerificationView({ project }: { project: Verifica
               </div>
             </div>
             <div className="mt-4 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-4">
-              <p className="text-sm font-semibold text-emerald-800">Professional trust snapshot</p>
+              <p className="text-sm font-semibold text-emerald-800">Evidence-backed trust snapshot</p>
               <p className="mt-1 text-sm leading-relaxed text-emerald-900/80">
                 Share this page as a living verification record for due diligence, partner review, or investor checks.
               </p>
@@ -372,7 +372,7 @@ export default function ProjectVerificationView({ project }: { project: Verifica
             <h2 className="text-sm font-semibold text-gray-900">Public trust record</h2>
             <p className="mt-1 text-sm leading-relaxed text-gray-600">
               Almond teAI publishes this page as a transparent record of recent automated security scans for this project.
-              It helps users, partners, and investors review current security posture over time, but it should be used alongside manual review and deeper testing.
+              It helps users, partners, and investors review current security posture over time, but it is not a manual penetration test and should be used alongside deeper manual review.
             </p>
           </div>
         </div>

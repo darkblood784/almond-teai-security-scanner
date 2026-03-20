@@ -29,6 +29,10 @@ The current benchmark manifest includes:
 - committed `.env`
 - real hardcoded secret in source
 - vulnerable dependency repo
+- JS/TS unsafe command execution
+- JS/TS insecure crypto usage
+- JS/TS insecure authentication logic
+- JS/TS dynamic SQL construction
 - docs/examples fake secret repo
 - repeated-pattern noise repo
 - header-only weak website

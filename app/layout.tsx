@@ -5,8 +5,8 @@ import AppSessionProvider from '@/components/SessionProvider';
 import { LanguageProvider } from '@/contexts/LanguageContext';
 
 export const metadata: Metadata = {
-  title:       'Almond teAI - Security Review Before You Ship',
-  description: 'AI-powered code security scanner. Detect vulnerabilities, get a security score, and download an audit report in under 30 seconds.',
+  title:       'Almond teAI - Security Verification Before You Ship',
+  description: 'Evidence-driven security verification for repositories and websites. Get trust scoring, finding context, and shareable verification reports.',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

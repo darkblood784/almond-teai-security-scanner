@@ -12,6 +12,7 @@ import { calculateScore, type FindingConfidence } from '@/lib/scoring';
 import { scanSecrets } from './secret-scanner';
 import { scanDependencies } from './dependency-scanner';
 import type { DependencyScanResult, ScanResult, VulnerabilityResult } from './types';
+import { scanJsTsAst, supportsAstFile, toVulnerabilityResults } from './ast';
 
 interface SeverityCounts {
   critical: number;
@@ -121,7 +122,7 @@ function shouldSuppressHardcodedSecretMatch(
   return looksLikePlaceholderSecret(assignedValue);
 }
 
-function normalizedCode(code?: string): string {
+function normalizedCode(code?: string | null): string {
   return (code ?? '')
     .replace(/\s+/g, ' ')
     .trim()
@@ -302,6 +303,9 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
   const codeVulnerabilities: VulnerabilityResult[] = [];
   let linesScanned = 0;
   let scannedFiles = 0;
+  let astFilesSupported = 0;
+  let astFilesParsed = 0;
+  let astParseFailures = 0;
 
   for (const filePath of allFiles) {
     let content: string;
@@ -317,6 +321,16 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
 
     if (!isScannerInternal(relPath)) {
       codeVulnerabilities.push(...scanFile(filePath, relPath, content));
+      if (supportsAstFile(filePath)) {
+        astFilesSupported++;
+        const astResult = scanJsTsAst(relPath, content);
+        if (astResult.parsed) {
+          astFilesParsed++;
+          codeVulnerabilities.push(...toVulnerabilityResults(relPath, astResult.findings));
+        } else {
+          astParseFailures++;
+        }
+      }
     }
   }
 
@@ -372,6 +386,13 @@ export async function scanDirectory(dir: string): Promise<ScanResult> {
 
   if (!dependencyScan.completed && dependencyScan.warning) {
     coverageNotes.push(dependencyScan.warning);
+  }
+
+  if (astFilesSupported > 0) {
+    coverageNotes.push(`Language-aware JS/TS AST analysis ran on ${astFilesParsed} of ${astFilesSupported} supported source file${astFilesSupported === 1 ? '' : 's'}.`);
+    if (astParseFailures > 0) {
+      coverageNotes.push(`${astParseFailures} supported JS/TS file${astParseFailures === 1 ? '' : 's'} could not be parsed for AST analysis and were scanned with pattern-based rules only.`);
+    }
   }
 
   return {

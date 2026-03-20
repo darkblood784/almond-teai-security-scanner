@@ -166,6 +166,8 @@ Required or commonly used variables:
 | `NEXT_PUBLIC_APP_URL` | Recommended | Public app URL used in badge/embed links |
 | `ANTHROPIC_API_KEY` | No | Enables AI summary generation |
 | `GITHUB_TOKEN` | No | Helps with GitHub API rate limits |
+| `ALLOW_FIXES_FOR_FREE` | No | Set to `true` for temporary internal testing to allow fix generation on free plan (ignored in production) |
+| `PRO_MONTHLY_FIX_LIMIT` | No | Monthly fix generation request limit for Pro users (default: `100`) |
 | `INTERNAL_ADMIN_TOKEN` | Internal MVP only | Used by the current internal project settings control |
 
 ## Local Development Notes

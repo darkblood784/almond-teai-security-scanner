@@ -45,7 +45,7 @@ export function renderTrustBadge(score: number, createdAt: Date | string): strin
   const status = scoreStatusLabel(score);
   const date = formatBadgeDate(createdAt);
   const title = 'Almond teAI';
-  const subtitle = 'Verified posture';
+  const subtitle = 'Latest scan posture';
   const scoreLabel = `${score}`;
   const gradeLabelText = `Grade ${grade}`;
   const metaLeft = `Status ${status}`;

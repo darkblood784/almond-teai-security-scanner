@@ -19,11 +19,11 @@ This file tracks the implementation roadmap phase by phase without disrupting th
 
 | Phase | Name | Status | Goal | Completion Signal |
 | --- | --- | --- | --- | --- |
-| 0 | Scope Honesty | pending | Make product wording match actual scan depth | Website scan wording, PDF wording, and public wording all clearly describe current scope |
-| 1 | Adaptive Website Assessment | pending | Add profile-driven website assessment | Website profile selected automatically and reflected in coverage notes |
-| 2 | Static Analysis Depth | pending | Add AST/language-aware repo scanning for high-value languages | JS/TS static depth lands with benchmark coverage and no major FP spike |
-| 3 | Scan-and-Fix Foundations | pending | Add reliable fixability model and remediation suggestion foundation | Supported finding types can be classified as fixable/non-fixable |
-| 4 | Paid Scan-and-Fix MVP | pending | Ship reviewable fix suggestions for supported repo findings | Pro users can view fix suggestions for supported findings |
+| 0 | Scope Honesty | completed | Make product wording match actual scan depth | Website scan wording, PDF wording, and public wording all clearly describe current scope |
+| 1 | Adaptive Website Assessment | completed | Add profile-driven website assessment | Website profile selected automatically and reflected in coverage notes |
+| 2 | Static Analysis Depth | completed | Add AST/language-aware repo scanning for high-value languages | JS/TS static depth lands with benchmark coverage and no major FP spike |
+| 3 | Scan-and-Fix Foundations | completed | Add reliable fixability model and remediation suggestion foundation | Supported finding types can be classified as fixable/non-fixable |
+| 4 | Paid Scan-and-Fix MVP | completed | Ship reviewable fix suggestions for supported repo findings | Pro users can view fix suggestions for supported findings |
 | 5 | Real Monitoring | pending | Turn monitoring into scheduled recurring scans | Monitored projects are rescanned automatically and create new Scan records |
 | 6 | Developer Workflow Integration | pending | Add GitHub/PR-oriented workflow hooks | Repo scans can be triggered or surfaced in GitHub workflow context |
 | 7 | Finding Management | pending | Add suppression / accepted-risk workflow | Findings can be triaged without mutating historical scan data |

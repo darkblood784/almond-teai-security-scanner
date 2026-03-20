@@ -73,6 +73,14 @@ function getCategoryModifier(finding: ScoredFinding, scanKind: ScanKind): number
     }
 
     if (
+      type.includes('sensitive runtime configuration signal') ||
+      type.includes('public internal portal content exposure') ||
+      type.includes('public api entry point detected')
+    ) {
+      return base * 0.75;
+    }
+
+    if (
       type.includes('exposed .env') ||
       type.includes('exposed git repository') ||
       type.includes('wordpress config') ||

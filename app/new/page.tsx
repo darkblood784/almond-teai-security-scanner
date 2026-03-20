@@ -25,7 +25,7 @@ export default function NewScanPage() {
       <ScanForm />
 
       <div className="mt-8 grid grid-cols-3 gap-3 text-center text-xs text-gray-400">
-        {['🔒 Code not stored', '⚡ Results in 30s', '📄 Free PDF report'].map(item => (
+        {['🔒 Code not stored', '⚡ Point-in-time verification', '📄 Shareable PDF report'].map(item => (
           <div key={item} className="rounded-lg border border-gray-100 bg-gray-50 p-3">
             {item}
           </div>
@@ -33,7 +33,7 @@ export default function NewScanPage() {
       </div>
 
       <p className="mt-6 text-center text-xs text-gray-300">
-        * Scores are for reference only and do not guarantee your product won&apos;t be hacked
+        * Automated assessment only. Use alongside manual testing for deeper assurance.
       </p>
     </div>
   );

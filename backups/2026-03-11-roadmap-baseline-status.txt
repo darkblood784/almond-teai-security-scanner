@@ -1,0 +1,27 @@
+ M app/api/analyze/route.ts
+ M app/api/badge/[slug]/route.ts
+ M app/api/projects/[id]/settings/route.ts
+ M app/api/report/[id]/route.ts
+ M app/api/scans/[id]/route.ts
+ M app/api/scans/route.ts
+ M app/dashboard/page.tsx
+ M app/scan/[id]/page.tsx
+ M components/DashboardView.tsx
+ M components/ProjectVerificationView.tsx
+ M components/ScanReportView.tsx
+ M lib/pdf.ts
+ M lib/scanner/dependency-scanner.ts
+ M lib/scanner/index.ts
+ M lib/scanner/secret-scanner.ts
+ M lib/scanner/types.ts
+ M lib/scanner/url-scanner.ts
+ M package-lock.json
+ M package.json
+ M prisma/schema.prisma
+?? BENCHMARKS.md
+?? ROADMAP_PROGRESS.md
+?? backups/
+?? benchmarks/
+?? lib/entitlements.ts
+?? lib/score-drivers.ts
+?? scripts/

@@ -122,7 +122,7 @@ export default function DashboardView({ projects, recentScans, stats }: Props) {
       <div className="mb-10 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">{t.dash_title}</h1>
-          <p className="mt-1 text-sm text-gray-400">Projects and their latest security trust state.</p>
+          <p className="mt-1 text-sm text-gray-400">Projects and their latest point-in-time security trust state.</p>
         </div>
         <Link href="/new"
           className="flex items-center gap-2 rounded-lg bg-gray-900 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-gray-700"
@@ -144,7 +144,7 @@ export default function DashboardView({ projects, recentScans, stats }: Props) {
         <div className="flex items-center justify-between border-b border-gray-100 bg-gray-50/80 px-6 py-4">
           <div>
             <h2 className="font-semibold text-gray-900">Projects</h2>
-            <p className="mt-1 text-sm text-gray-400">Latest trust and security state per owned project.</p>
+            <p className="mt-1 text-sm text-gray-400">Latest evidence-driven trust and security state per owned project.</p>
           </div>
           <span className="text-sm text-gray-400">{projects.length} project{projects.length === 1 ? '' : 's'}</span>
         </div>
@@ -217,10 +217,10 @@ export default function DashboardView({ projects, recentScans, stats }: Props) {
                               </span>
                             )}
                           </div>
-                          <p className="mt-3 max-w-2xl text-sm text-gray-500">
+                            <p className="mt-3 max-w-2xl text-sm text-gray-500">
                             {latestScan
-                              ? 'Latest project security state based on the most recent completed or in-progress scan.'
-                              : 'No scans yet. Start a scan to establish a trust record for this project.'}
+                              ? 'Latest project security state based on the most recent automated scan result.'
+                              : 'No scans yet. Start a scan to establish a public trust record for this project.'}
                           </p>
                         </div>
                       </div>

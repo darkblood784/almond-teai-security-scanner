@@ -6,12 +6,14 @@ import { auth } from '@/auth';
 import prisma from '@/lib/db';
 import { getPlanEntitlements } from '@/lib/entitlements';
 import { scanDirectory } from '@/lib/scanner/index';
-import { scanUrl } from '@/lib/scanner/url-scanner';
+import { scanWebsiteTarget } from '@/lib/scanner/webapp-scanner';
 import { downloadGitHubZip } from '@/lib/github';
 import { aiAnalyze } from '@/lib/ai';
 import { compareScans } from '@/lib/regression';
 import { safeExtractZip } from '@/lib/safe-extract';
+import { classifyFinding } from '@/lib/fixability';
 import { parseGitHubUrl } from '@/lib/utils';
+import type { VulnerabilityResult } from '@/lib/scanner/types';
 import {
   buildGitHubCanonicalKey,
   buildWebsiteCanonicalKey,
@@ -20,6 +22,17 @@ import {
 } from '@/lib/projects';
 
 export const maxDuration = 60;
+
+function applyFixability(vulnerabilities: VulnerabilityResult[]): VulnerabilityResult[] {
+  return vulnerabilities.map(vulnerability => {
+    const classification = classifyFinding(vulnerability);
+    return {
+      ...vulnerability,
+      fixability: classification.fixability,
+      fixLevel: classification.fixLevel,
+    };
+  });
+}
 
 async function loadScanningUser(userId: string) {
   return prisma.user.findUnique({
@@ -137,19 +150,21 @@ export async function POST(req: NextRequest) {
 
       let result;
       try {
-        result = await scanUrl(normalizedUrl);
+        result = await scanWebsiteTarget(normalizedUrl);
       } catch (err) {
         const msg = err instanceof Error ? err.message : 'Website scan failed';
         await prisma.scan.update({ where: { id: scan.id }, data: { status: 'failed', errorMessage: msg } });
         return NextResponse.json({ error: msg, scanId: scan.id }, { status: 422 });
       }
 
-      const aiResult = await aiAnalyze(hostname, result.vulnerabilities as never[], result.score);
+      const vulnerabilities = applyFixability(result.vulnerabilities);
+
+      const aiResult = await aiAnalyze(hostname, vulnerabilities as never[], result.score);
       const previousScan = await loadPreviousCompletedScan(project.id, scan.id);
       const regression = compareScans(previousScan, {
         id: scan.id,
         score: result.score,
-        vulnerabilities: result.vulnerabilities.map(v => ({
+        vulnerabilities: vulnerabilities.map(v => ({
           type: v.type,
           category: v.category,
           severity: v.severity,
@@ -192,14 +207,16 @@ export async function POST(req: NextRequest) {
         data: { latestScanId: scan.id },
       });
 
-      if (result.vulnerabilities.length > 0) {
+      if (vulnerabilities.length > 0) {
         await prisma.vulnerability.createMany({
-          data: result.vulnerabilities.map(v => ({
+          data: vulnerabilities.map(v => ({
             scanId: scan.id, type: v.type, category: v.category, severity: v.severity,
             confidence: v.confidence,
             exploitability: v.exploitability,
             file: v.file, line: v.line, code: v.code,
             description: v.description, suggestion: v.suggestion,
+            fixability: v.fixability,
+            fixLevel: v.fixLevel,
           })),
         });
       }
@@ -254,12 +271,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Scanner failed', scanId: scan.id }, { status: 500 });
       }
 
-      const aiResult = await aiAnalyze(repoName, result.vulnerabilities, result.score);
+      const vulnerabilities = applyFixability(result.vulnerabilities);
+
+      const aiResult = await aiAnalyze(repoName, vulnerabilities, result.score);
       const previousScan = await loadPreviousCompletedScan(project.id, scan.id);
       const regression = compareScans(previousScan, {
         id: scan.id,
         score: result.score,
-        vulnerabilities: result.vulnerabilities.map(v => ({
+        vulnerabilities: vulnerabilities.map(v => ({
           type: v.type,
           category: v.category,
           severity: v.severity,
@@ -301,14 +320,16 @@ export async function POST(req: NextRequest) {
         data: { latestScanId: scan.id },
       });
 
-      if (result.vulnerabilities.length > 0) {
+      if (vulnerabilities.length > 0) {
         await prisma.vulnerability.createMany({
-          data: result.vulnerabilities.map(v => ({
+          data: vulnerabilities.map(v => ({
             scanId: scan.id, type: v.type, category: v.category, severity: v.severity,
             confidence: v.confidence,
             exploitability: v.exploitability,
             file: v.file, line: v.line ?? null, code: v.code ?? null,
             description: v.description, suggestion: v.suggestion,
+            fixability: v.fixability,
+            fixLevel: v.fixLevel,
           })),
         });
       }
@@ -355,12 +376,14 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Scanner failed', scanId: scan.id }, { status: 500 });
       }
 
-      const aiResult = await aiAnalyze(repoName, result.vulnerabilities, result.score);
+      const vulnerabilities = applyFixability(result.vulnerabilities);
+
+      const aiResult = await aiAnalyze(repoName, vulnerabilities, result.score);
       const previousScan = await loadPreviousCompletedScan(project.id, scan.id);
       const regression = compareScans(previousScan, {
         id: scan.id,
         score: result.score,
-        vulnerabilities: result.vulnerabilities.map(v => ({
+        vulnerabilities: vulnerabilities.map(v => ({
           type: v.type,
           category: v.category,
           severity: v.severity,
@@ -402,14 +425,16 @@ export async function POST(req: NextRequest) {
         data: { latestScanId: scan.id },
       });
 
-      if (result.vulnerabilities.length > 0) {
+      if (vulnerabilities.length > 0) {
         await prisma.vulnerability.createMany({
-          data: result.vulnerabilities.map(v => ({
+          data: vulnerabilities.map(v => ({
             scanId: scan.id, type: v.type, category: v.category, severity: v.severity,
             confidence: v.confidence,
             exploitability: v.exploitability,
             file: v.file, line: v.line ?? null, code: v.code ?? null,
             description: v.description, suggestion: v.suggestion,
+            fixability: v.fixability,
+            fixLevel: v.fixLevel,
           })),
         });
       }
