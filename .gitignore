@@ -4,5 +4,5 @@ prisma/dev.db
 prisma/dev.db-journal
 /tmp/
 *.tsbuildinfo
-.env
-.env.example
+*.env
+*.env.example
