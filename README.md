@@ -4,6 +4,9 @@ Almond teAI is a security verification and trust platform for repositories, uplo
 
 It goes beyond one-time vulnerability detection by combining project-centric scan history, public verification pages, trust badges, exploit verification, regression intelligence, and professional PDF reporting.
 
+<img width="1036" height="756" alt="image" src="https://github.com/user-attachments/assets/46a7b2b0-0c4e-478f-a045-e541a1fcea2c" />
+
+
 ## What Is Implemented
 
 ### Core scan inputs
@@ -23,6 +26,8 @@ It goes beyond one-time vulnerability detection by combining project-centric sca
   - `/api-docs`
   - CORS misconfiguration
   - safe GraphQL exposure verification
+
+<img width="1029" height="430" alt="image" src="https://github.com/user-attachments/assets/f52821ce-64e6-4114-98af-e8c68b5851cd" />
 
 ### Trust and scoring
 - Project-centric data model
@@ -54,6 +59,8 @@ It goes beyond one-time vulnerability detection by combining project-centric sca
 - Professional Almond teAI PDF security reports
 - Grade, score, status, exploitability, and category included in report findings
 - Badge embed UX on the scan detail page
+
+<img width="1016" height="606" alt="image" src="https://github.com/user-attachments/assets/dc3d2093-e683-414c-99f3-850b421264e0" />
 
 ### SaaS foundation
 - Auth.js / NextAuth integration
