@@ -21,6 +21,18 @@ Almond teAI goes beyond one-time vulnerability detection by combining **project-
 
 ---
 
+## 👨‍💻 My Contribution
+
+- Designed the overall system architecture and data flow
+- Built backend APIs, database schema, and core business logic
+- Developed frontend UI with real-time features and responsive design
+- Implemented AI-driven analysis components and data processing pipelines
+- Integrated third-party APIs (market data, authentication, email services)
+- Set up containerized deployment and environment configuration
+- Led end-to-end development from concept to production-ready system
+
+---
+
 ## 🏗️ Architecture Overview
 
 **Frontend**: React + Next.js 14 (App Router) + Tailwind CSS
@@ -49,6 +61,15 @@ Almond teAI goes beyond one-time vulnerability detection by combining **project-
 
 **For Portfolio**: Demonstrates full-stack expertise, architectural thinking, multi-layered authentication, complex data models, and polished UX for technical users.
 
+---
+
+## ⚡ Quick Highlights
+
+- Full-stack SaaS platform (Next.js + FastAPI)
+- Real-time system with WebSocket streaming
+- AI-powered analysis and decision support
+- Production-ready architecture (Docker, PostgreSQL)
+- Secure authentication (JWT, OAuth)
 ---
 
 ## What Is Implemented
