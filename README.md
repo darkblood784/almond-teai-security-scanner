@@ -4,6 +4,11 @@
 
 Almond teAI goes beyond one-time vulnerability detection by combining **project-centric scan history**, **public verification pages**, **embeddable trust badges**, **exploit verification**, **regression intelligence**, and **professional PDF reporting** into a cohesive trust platform for modern AI-generated apps and software projects.
 
+## 🔗 Live Demo
+
+- App: [Almond teAI Security Scanner](https://almondteai-security-scanner-mocha.vercel.app/)
+- Note: Demo environment with limited features enabled
+
 <img width="1036" height="756" alt="image" src="https://github.com/user-attachments/assets/bbecc786-ad29-4622-bd72-1891911dde7e" />
 
 ---
