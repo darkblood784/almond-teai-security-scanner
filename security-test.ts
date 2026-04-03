@@ -1,1 +1,2 @@
 const token = "dsflslkhdsgsdgsdsgs43546546132134fsdjfhns";
+const usdt = "5465321546763543213213213213546587467654654";
