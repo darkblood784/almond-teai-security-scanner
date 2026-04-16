@@ -1,11 +1,11 @@
 --- a/security-test.ts
 +++ b/security-test.ts
-@@ -7,7 +7,7 @@
- import { SomeModule } from './some-module';
+@@ -4,4 +4,4 @@
+ // Security test file
  
- // Token should be loaded from environment or secrets manager
--const token = "dsflslkhdsgsdgsdsgs43546546132134fsdjfhns";
-+const token = process.env.SECRET_TOKEN || process.env.NODE_ENV === 'test' ? 'test-token-placeholder' : undefined;
- 
- export function authenticate() {
-   if (!token) {
+-import { config } from 'dotenv';
+-config();
++const token = process.env.SECRET_TOKEN;
++if (!token) { throw new Error('SECRET_TOKEN environment variable is required'); }
+-export const getToken = () => token;
++export const getToken = () => token;
